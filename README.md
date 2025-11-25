@@ -17,6 +17,7 @@ AI-powered video clipping service with automatic subtitle generation.
 ```
 app/
   core/           # System configuration
+  models/         # Database models
   routers/        # API endpoints
   services/       # Business logic
   workers/        # Background tasks
@@ -39,8 +40,11 @@ cp .env.example .env
 # Install dependencies
 pip install -r requirements.txt
 
-# Start Redis (required)
-docker-compose up redis -d
+# Start PostgreSQL and Redis (required)
+docker-compose up postgres redis -d
+
+# Run database migrations
+alembic upgrade head
 
 # Start API
 uvicorn app.api.main:app --host 0.0.0.0 --port 8000
@@ -72,9 +76,33 @@ docker-compose up
 - 1 clip = 1 coin
 - Buy coins: 5 / 20 / 50 coins
 
+## Database
+
+The project uses PostgreSQL for persistent storage. Database migrations are managed with Alembic.
+
+### Running Migrations
+
+```bash
+# Apply all migrations
+alembic upgrade head
+
+# Create a new migration
+alembic revision --autogenerate -m "Description"
+
+# Rollback last migration
+alembic downgrade -1
+```
+
+### Database Models
+
+- **User** - User accounts with Telegram ID and balance
+- **Transaction** - Transaction history (purchases, charges, refunds)
+- **VideoTask** - Video processing tasks with status tracking
+
 ## Requirements
 
 - Python 3.10+
+- PostgreSQL 16+
 - Redis
 - ffmpeg
 - Whisper (model: medium)

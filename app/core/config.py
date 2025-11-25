@@ -6,6 +6,8 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    DATABASE_URL: str = "postgresql://cutclipai:cutclipai@localhost:5432/cutclipai"
+
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0

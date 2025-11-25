@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.core.database import init_db
 from app.routers import billing, video
 
 
@@ -12,6 +13,10 @@ def create_app(
     application = FastAPI(
         title=app_name,
     )
+
+    @application.on_event("startup")
+    def startup_event():
+        init_db()
 
     application.include_router(router=video.router)
     application.include_router(router=billing.router)

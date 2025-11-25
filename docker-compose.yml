@@ -1,6 +1,22 @@
 version: "3.8"
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=cutclipai
+      - POSTGRES_PASSWORD=cutclipai
+      - POSTGRES_DB=cutclipai
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cutclipai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     ports:
@@ -23,8 +39,12 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - API_BASE_URL=http://localhost:8000
+      - DATABASE_URL=postgresql://cutclipai:cutclipai@postgres:5432/cutclipai
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     env_file:
       - .env
 
@@ -39,9 +59,14 @@ services:
       - REDIS_PORT=6379
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DATABASE_URL=postgresql://cutclipai:cutclipai@postgres:5432/cutclipai
     depends_on:
-      - redis
-      - api
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      api:
+        condition: service_started
     env_file:
       - .env
 
@@ -55,10 +80,15 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - API_BASE_URL=http://api:8000
+      - DATABASE_URL=postgresql://cutclipai:cutclipai@postgres:5432/cutclipai
     depends_on:
-      - api
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
     env_file:
       - .env
 
 volumes:
+  postgres_data:
   redis_data:
