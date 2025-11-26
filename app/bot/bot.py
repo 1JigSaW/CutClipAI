@@ -11,6 +11,9 @@ async def main() -> None:
     """
     Initialize and start Telegram bot.
     """
+    if not settings.TELEGRAM_BOT_TOKEN:
+        raise ValueError("TELEGRAM_BOT_TOKEN is not set in environment variables")
+
     bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
 
