@@ -39,12 +39,12 @@ class VideoTask(Base):
         nullable=False,
         index=True,
     )
-    input_file_path = Column(
+    input_s3_key = Column(
         String,
         nullable=True,
     )
-    output_file_path = Column(
-        String,
+    output_s3_keys = Column(
+        Text,
         nullable=True,
     )
     error_message = Column(

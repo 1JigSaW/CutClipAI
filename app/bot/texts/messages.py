@@ -1,15 +1,39 @@
-WELCOME_MESSAGE = """
-Welcome to CutClipAI! 🎬
+START_MESSAGE = """
+👋 Welcome to CutClipAI! 🎬
 
-I can help you create short clips from your videos with automatic subtitles.
+I'm your AI-powered assistant for creating engaging video clips with automatic subtitles.
 
-Send me a video to get started!
+✨ What I can do:
+
+• Create short clips (20-60 seconds) from your videos
+• Generate automatic subtitles using AI
+• Select the most engaging moments
+• Format videos in 9:16 aspect ratio for vertical content
+
+📊 Video requirements:
+• Maximum duration: 30 minutes
+• Formats: MP4, MOV, AVI
+• Up to 3 clips per video
 """
 
 BALANCE_MESSAGE = """
-Your balance: {balance} coins 💰
+💰 Your balance: {balance} coins
 
-1 clip = 1 coin
+💡 Pricing: 1 clip = 1 coin
+"""
+
+VIDEO_UPLOAD_INSTRUCTIONS_MESSAGE = """
+📤 Ready to create clips?
+
+Send me a video file or tap the button below to get started!
+
+I'll automatically:
+1. Analyze your video
+2. Select the best moments
+3. Add subtitles
+4. Create up to 3 clips for you
+
+⏱️ Processing usually takes a few minutes.
 """
 
 NO_COINS_MESSAGE = """
@@ -48,5 +72,14 @@ BUY_COINS_MESSAGE = """
 💰 Buy coins:
 
 1 clip = 1 coin
+"""
+
+UPLOAD_VIDEO_REMINDER_MESSAGE = """
+📤 To upload a video:
+
+Simply send me a video file directly - I'll automatically detect it and start processing!
+
+📋 Supported formats: MP4, MOV, AVI
+⏱️ Maximum duration: 30 minutes
 """
 

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from celery.result import AsyncResult
 
 from app.core.celery_app import celery_app
+from app.services.storage.s3 import S3Service
 from app.workers.video.worker import process_video_task
 
 router = APIRouter(
@@ -51,8 +52,17 @@ async def process_video(
             content = await file.read()
             f.write(content)
 
-        task = process_video_task.delay(
+        s3_service = S3Service()
+        s3_key = s3_service.upload_file(
             file_path=temp_path,
+            prefix=f"videos/input/{user_id}",
+        )
+
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+        task = process_video_task.delay(
+            s3_key=s3_key,
             user_id=user_id,
         )
     except Exception:

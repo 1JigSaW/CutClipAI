@@ -56,3 +56,23 @@ def get_balance_keyboard() -> InlineKeyboardMarkup:
     )
     return keyboard
 
+
+def get_upload_video_keyboard() -> InlineKeyboardMarkup:
+    """
+    Create inline keyboard for video upload.
+
+    Returns:
+        Inline keyboard markup with video upload button
+    """
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📤 Upload Video",
+                    callback_data="upload_video",
+                ),
+            ],
+        ]
+    )
+    return keyboard
+

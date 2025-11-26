@@ -1,14 +1,11 @@
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
-from app.bot.keyboards.inline import get_buy_coins_keyboard
-from app.bot.texts.messages import BALANCE_MESSAGE, WELCOME_MESSAGE
-from app.services.billing.wallet import WalletService
+from app.bot.keyboards.inline import get_upload_video_keyboard
+from app.bot.texts.messages import ERROR_MESSAGE, START_MESSAGE
 
 router = Router()
-
-wallet_service = WalletService()
 
 
 @router.message(Command("start"))
@@ -21,17 +18,35 @@ async def cmd_start(
     Args:
         message: Telegram message object
     """
-    user_id = message.from_user.id
+    try:
+        if not message.from_user:
+            await message.answer(
+                text=ERROR_MESSAGE,
+            )
+            return
 
-    balance = wallet_service.get_balance(user_id=user_id)
+        await message.answer(
+            text=START_MESSAGE,
+            reply_markup=get_upload_video_keyboard(),
+        )
+    except Exception:
+        await message.answer(
+            text=ERROR_MESSAGE,
+        )
 
-    await message.answer(
-        text=WELCOME_MESSAGE,
-        reply_markup=get_buy_coins_keyboard(),
+
+@router.callback_query(F.data == "upload_video")
+async def handle_upload_video_callback(
+    callback: CallbackQuery,
+) -> None:
+    """
+    Handle upload video callback.
+
+    Args:
+        callback: Callback query object
+    """
+    await callback.message.answer(
+        text="📤 Send me a video file to start processing!",
     )
-
-    await message.answer(
-        text=BALANCE_MESSAGE.format(balance=balance),
-        reply_markup=get_buy_coins_keyboard(),
-    )
+    await callback.answer()
 
