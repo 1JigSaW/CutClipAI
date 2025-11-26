@@ -9,11 +9,6 @@ I'm your AI-powered assistant for creating engaging video clips with automatic s
 • Generate automatic subtitles using AI
 • Select the most engaging moments
 • Format videos in 9:16 aspect ratio for vertical content
-
-📊 Video requirements:
-• Maximum duration: 30 minutes
-• Formats: MP4, MOV, AVI
-• Up to 3 clips per video
 """
 
 BALANCE_MESSAGE = """
@@ -51,9 +46,17 @@ CLIPS_READY_MESSAGE = """
 """
 
 PROCESSING_MESSAGE = """
-⏳ Processing your video...
+⏳ Processing your video in the background...
 
-This may take a few minutes. I'll notify you when it's ready!
+🔄 What I'm doing:
+• Analyzing video content
+• Generating transcriptions with AI
+• Selecting the best moments
+• Creating clips with subtitles
+
+⏱️ Estimated time: 3-10 minutes
+
+Please wait, I'll notify you as soon as your clips are ready! 🎬
 """
 
 ERROR_MESSAGE = """
@@ -74,12 +77,13 @@ BUY_COINS_MESSAGE = """
 1 clip = 1 coin
 """
 
-UPLOAD_VIDEO_REMINDER_MESSAGE = """
-📤 To upload a video:
-
-Simply send me a video file directly - I'll automatically detect it and start processing!
+VIDEO_REQUIREMENTS_MESSAGE = """
+📤 Video requirements:
 
 📋 Supported formats: MP4, MOV, AVI
 ⏱️ Maximum duration: 30 minutes
+🎬 Up to 3 clips per video
+
+Send me a video file to start processing!
 """
 

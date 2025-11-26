@@ -32,8 +32,6 @@ async def handle_video(
     """
     user_id = message.from_user.id
 
-    await message.answer(text=PROCESSING_MESSAGE)
-
     local_path = None
 
     try:
@@ -65,6 +63,8 @@ async def handle_video(
 
             task_data = response.json()
             task_id = task_data["task_id"]
+
+            await message.answer(text=PROCESSING_MESSAGE)
 
             result = await poll_task_status(
                 client=client,

@@ -1,9 +1,9 @@
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.bot.keyboards.inline import get_upload_video_keyboard
-from app.bot.texts.messages import ERROR_MESSAGE, START_MESSAGE
+from app.bot.texts.messages import ERROR_MESSAGE, START_MESSAGE, VIDEO_REQUIREMENTS_MESSAGE
 
 router = Router()
 
@@ -32,6 +32,7 @@ async def cmd_start(
     except Exception:
         await message.answer(
             text=ERROR_MESSAGE,
+            reply_markup=ReplyKeyboardRemove(),
         )
 
 
@@ -46,7 +47,7 @@ async def handle_upload_video_callback(
         callback: Callback query object
     """
     await callback.message.answer(
-        text="📤 Send me a video file to start processing!",
+        text=VIDEO_REQUIREMENTS_MESSAGE,
     )
     await callback.answer()
 
