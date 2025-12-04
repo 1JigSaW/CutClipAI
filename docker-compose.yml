@@ -50,7 +50,7 @@ services:
 
   worker:
     build: .
-    command: celery -A app.core.celery_app worker --loglevel=info
+    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=2 --max-tasks-per-child=5 --prefetch-multiplier=1
     volumes:
       - ./data:/app/data
       - ./app:/app/app
@@ -69,6 +69,16 @@ services:
         condition: service_started
     env_file:
       - .env
+    mem_limit: 16g
+    memswap_limit: 16g
+    cpus: 4
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   bot:
     build: .

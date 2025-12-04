@@ -6,9 +6,14 @@ from pydantic import BaseModel
 
 from celery.result import AsyncResult
 
+from fastapi import HTTPException
+
 from app.core.celery_app import celery_app
+from app.core.logger import get_logger, log_error
 from app.services.storage.s3 import S3Service
 from app.workers.video.worker import process_video_task
+
+logger = get_logger(__name__)
 
 router = APIRouter(
     prefix="/video",
@@ -44,18 +49,41 @@ async def process_video(
     Returns:
         Task ID for status checking
     """
-    suffix = os.path.splitext(file.filename or "video.mp4")[1]
+    if not file:
+        logger.error(f"Received request without file | user_id={user_id}")
+        raise HTTPException(status_code=400, detail="File is required")
+
+    file_name = file.filename or "video.mp4"
+    suffix = os.path.splitext(file_name)[1]
     temp_fd, temp_path = tempfile.mkstemp(suffix=suffix, dir="/tmp")
 
+    logger.info(
+        f"Received video upload request | user_id={user_id} | filename={file_name}",
+    )
+
     try:
+        file_size = 0
         with os.fdopen(temp_fd, "wb") as f:
-            content = await file.read()
-            f.write(content)
+            while True:
+                chunk = await file.read(8192)
+                if not chunk:
+                    break
+                f.write(chunk)
+                file_size += len(chunk)
+
+        logger.info(
+            f"Video file saved to temp | user_id={user_id} | "
+            f"size={file_size} bytes | path={temp_path}",
+        )
 
         s3_service = S3Service()
         s3_key = s3_service.upload_file(
             file_path=temp_path,
             prefix=f"videos/input/{user_id}",
+        )
+
+        logger.info(
+            f"Video uploaded to S3 | user_id={user_id} | s3_key={s3_key}",
         )
 
         if os.path.exists(temp_path):
@@ -65,7 +93,22 @@ async def process_video(
             s3_key=s3_key,
             user_id=user_id,
         )
-    except Exception:
+
+        logger.info(
+            f"Video processing task created | user_id={user_id} | "
+            f"task_id={task.id} | s3_key={s3_key}",
+        )
+
+    except Exception as e:
+        log_error(
+            logger=logger,
+            message=f"Failed to process video upload | user_id={user_id}",
+            error=e,
+            context={
+                "filename": file_name,
+                "file_size": file_size if "file_size" in locals() else None,
+            },
+        )
         if os.path.exists(temp_path):
             os.unlink(temp_path)
         raise
@@ -91,6 +134,8 @@ async def get_video_status(
     Returns:
         Task status and result if ready
     """
+    logger.debug(f"Checking task status | task_id={task_id}")
+
     task = AsyncResult(id=task_id, app=celery_app)
 
     if task.state == "PENDING":
@@ -99,24 +144,40 @@ async def get_video_status(
             "status": "pending",
             "result": None,
         }
-    elif task.state == "PROGRESS":
+        logger.debug(f"Task is pending | task_id={task_id}")
+    elif task.state in ("PROGRESS", "STARTED"):
         response = {
             "task_id": task_id,
             "status": "processing",
-            "result": task.info,
+            "result": task.info if task.info else {},
         }
+        logger.debug(f"Task is processing | task_id={task_id} | state={task.state}")
     elif task.state == "SUCCESS":
         response = {
             "task_id": task_id,
             "status": "completed",
             "result": task.result,
         }
-    else:
+        logger.info(f"Task completed successfully | task_id={task_id}")
+    elif task.state == "FAILURE":
+        error_info = str(task.info) if task.info else "Unknown error"
         response = {
             "task_id": task_id,
             "status": "failed",
-            "result": {"error": str(task.info)},
+            "result": {"error": error_info},
         }
+        logger.error(
+            f"Task failed | task_id={task_id} | state={task.state} | error={error_info}",
+        )
+    else:
+        response = {
+            "task_id": task_id,
+            "status": "pending",
+            "result": None,
+        }
+        logger.warning(
+            f"Task in unknown state | task_id={task_id} | state={task.state} | info={task.info}",
+        )
 
     return VideoStatusResponse(**response)
 

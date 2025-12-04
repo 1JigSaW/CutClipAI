@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     API_BASE_URL: str = "http://localhost:8000"
 
     WHISPER_MODEL: str = "medium"
+    FORCE_CPU: bool = False
 
     VIDEO_MAX_DURATION_SECONDS: int = 1800
     CLIP_MIN_DURATION_SECONDS: int = 20
@@ -42,6 +43,8 @@ class Settings(BaseSettings):
     AWS_REGION: str = "us-east-1"
     S3_BUCKET_NAME: str = "cutclipai"
     S3_ENDPOINT_URL: Optional[str] = None
+
+    GOOGLE_DRIVE_API_KEY: Optional[str] = None
 
     class Config:
         env_file = ".env"

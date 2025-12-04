@@ -5,6 +5,11 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.bot.handlers import billing, start, video
 from app.core.config import settings
+from app.core.logger import get_logger, setup_logging
+
+logger = get_logger(__name__)
+
+setup_logging(level="INFO")
 
 
 async def main() -> None:
@@ -28,6 +33,7 @@ async def main() -> None:
     dp.include_router(router=video.router)
     dp.include_router(router=billing.router)
 
+    logger.info("Starting Telegram bot polling")
     await dp.start_polling(bot)
 
 

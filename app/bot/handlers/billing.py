@@ -10,8 +10,10 @@ from app.bot.texts.messages import (
     COINS_ADDED_MESSAGE,
 )
 from app.core.config import settings
+from app.core.logger import get_logger, log_error
 from app.services.billing.wallet import WalletService
 
+logger = get_logger(__name__)
 router = Router()
 
 wallet_service = WalletService()
@@ -29,7 +31,11 @@ async def handle_check_balance(
     """
     user_id = callback.from_user.id
 
+    logger.info(f"User checking balance | user_id={user_id}")
+
     balance = wallet_service.get_balance(user_id=user_id)
+
+    logger.debug(f"Balance retrieved | user_id={user_id} | balance={balance}")
 
     await callback.message.answer(
         text=BALANCE_MESSAGE.format(balance=balance),
@@ -71,6 +77,10 @@ async def handle_buy_coins(
     amount_str = callback.data.split(":")[1]
     amount = int(amount_str)
 
+    logger.info(
+        f"User buying coins | user_id={user_id} | amount={amount}",
+    )
+
     async with httpx.AsyncClient() as client:
         response = await client.post(
             url=f"{settings.API_BASE_URL}/billing/buy",
@@ -84,6 +94,11 @@ async def handle_buy_coins(
             data = response.json()
             new_balance = data["new_balance"]
 
+            logger.info(
+                f"Coins purchased successfully | user_id={user_id} | "
+                f"amount={amount} | new_balance={new_balance}",
+            )
+
             await callback.message.answer(
                 text=COINS_ADDED_MESSAGE.format(
                     amount=amount,
@@ -91,6 +106,10 @@ async def handle_buy_coins(
                 ),
             )
         else:
+            logger.error(
+                f"Failed to purchase coins | user_id={user_id} | "
+                f"amount={amount} | status_code={response.status_code}",
+            )
             await callback.message.answer(
                 text="❌ Failed to purchase coins. Please try again.",
             )

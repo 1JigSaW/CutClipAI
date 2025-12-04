@@ -4,7 +4,9 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.bot.keyboards.inline import get_upload_video_keyboard
 from app.bot.texts.messages import ERROR_MESSAGE, START_MESSAGE, VIDEO_REQUIREMENTS_MESSAGE
+from app.core.logger import get_logger, log_error
 
+logger = get_logger(__name__)
 router = Router()
 
 
@@ -20,16 +22,31 @@ async def cmd_start(
     """
     try:
         if not message.from_user:
+            logger.warning("Received /start command without from_user")
             await message.answer(
                 text=ERROR_MESSAGE,
             )
             return
 
+        user_id = message.from_user.id
+        username = message.from_user.username or "unknown"
+
+        logger.info(
+            f"Received /start command | user_id={user_id} | username={username}",
+        )
+
         await message.answer(
             text=START_MESSAGE,
             reply_markup=get_upload_video_keyboard(),
         )
-    except Exception:
+
+        logger.debug(f"Sent welcome message | user_id={user_id}")
+    except Exception as e:
+        log_error(
+            logger=logger,
+            message="Failed to handle /start command",
+            error=e,
+        )
         await message.answer(
             text=ERROR_MESSAGE,
             reply_markup=ReplyKeyboardRemove(),
@@ -46,6 +63,10 @@ async def handle_upload_video_callback(
     Args:
         callback: Callback query object
     """
+    user_id = callback.from_user.id
+
+    logger.info(f"User requested video upload instructions | user_id={user_id}")
+
     await callback.message.answer(
         text=VIDEO_REQUIREMENTS_MESSAGE,
     )

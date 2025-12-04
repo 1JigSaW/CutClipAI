@@ -1,6 +1,9 @@
 from typing import Any
 
 from app.core.config import settings
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class ScoringService:
@@ -28,30 +31,93 @@ class ScoringService:
             List of best moments with start and end times
         """
         if not segments:
+            logger.warning("No segments provided for scoring")
             return []
 
-        valid_moments = []
-        for i, segment in enumerate(segments):
-            start = segment["start"]
-            end = segment["end"]
-            duration = end - start
+        logger.info(
+            f"Selecting best moments from {len(segments)} segments | "
+            f"min_duration={self.min_duration}s | max_duration={self.max_duration}s",
+        )
 
-            if self.min_duration <= duration <= self.max_duration:
-                valid_moments.append(
-                    {
-                        "start": start,
-                        "end": end,
-                        "score": self._calculate_score(segment=segment),
-                        "text": segment.get("text", ""),
-                    }
-                )
+        if len(segments) == 0:
+            return []
 
-        valid_moments.sort(
+        segment_durations = [seg["end"] - seg["start"] for seg in segments]
+        avg_duration = sum(segment_durations) / len(segment_durations) if segment_durations else 0
+        logger.info(
+            f"Segment statistics | count={len(segments)} | "
+            f"avg_duration={avg_duration:.2f}s | "
+            f"min_duration={min(segment_durations):.2f}s | "
+            f"max_duration={max(segment_durations):.2f}s",
+        )
+
+        continuous_clips = self._find_continuous_speech_moments(segments=segments)
+        
+        logger.info(f"Found {len(continuous_clips)} continuous speech moments")
+
+        continuous_clips.sort(
             key=lambda x: x["score"],
             reverse=True,
         )
 
-        return valid_moments[: self.max_clips]
+        result = continuous_clips[: self.max_clips]
+        logger.info(f"Selected {len(result)} best clips after sorting")
+        return result
+
+    def _find_continuous_speech_moments(
+        self,
+        segments: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """
+        Find continuous speech moments (without big pauses).
+
+        Args:
+            segments: List of transcription segments
+
+        Returns:
+            List of continuous moments with start, end, score
+        """
+        if not segments:
+            return []
+
+        clips = []
+        i = 0
+        max_pause = 3.0
+
+        while i < len(segments):
+            clip_start = segments[i]["start"]
+            clip_segments = [segments[i]]
+            j = i + 1
+
+            while j < len(segments):
+                prev_end = segments[j - 1]["end"]
+                current_start = segments[j]["start"]
+                pause = current_start - prev_end
+
+                current_clip_duration = segments[j]["end"] - clip_start
+
+                if pause <= max_pause and current_clip_duration <= self.max_duration:
+                    clip_segments.append(segments[j])
+                    j += 1
+                else:
+                    break
+
+            clip_end = clip_segments[-1]["end"]
+            clip_duration = clip_end - clip_start
+
+            if clip_duration >= self.min_duration:
+                combined_text = " ".join([s.get("text", "") for s in clip_segments])
+                avg_score = sum([self._calculate_score(s) for s in clip_segments]) / len(clip_segments)
+                clips.append({
+                    "start": clip_start,
+                    "end": clip_end,
+                    "score": avg_score,
+                    "text": combined_text,
+                })
+
+            i = j if j > i else i + 1
+
+        return clips
 
     def _calculate_score(
         self,

@@ -82,8 +82,23 @@ VIDEO_REQUIREMENTS_MESSAGE = """
 
 📋 Supported formats: MP4, MOV, AVI
 ⏱️ Maximum duration: 30 minutes
+💾 Maximum file size: 4 GB (via Telegram)
+🔗 For larger files: send Google Drive link
 🎬 Up to 3 clips per video
 
-Send me a video file to start processing!
+Send me a video file or Google Drive link to start processing!
+"""
+
+DOWNLOADING_MESSAGE = """
+⬇️ Downloading video from Google Drive...
+
+This may take a few minutes depending on file size.
+"""
+
+INVALID_GOOGLE_DRIVE_LINK_MESSAGE = """
+❌ Invalid Google Drive link!
+
+Please send a valid Google Drive sharing link.
+Make sure the file is publicly accessible.
 """
 
