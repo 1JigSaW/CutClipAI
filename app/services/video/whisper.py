@@ -130,13 +130,16 @@ class WhisperService:
 
         segments = []
         for segment in result.get("segments", []):
-            segments.append(
-                {
-                    "start": segment["start"],
-                    "end": segment["end"],
-                    "text": segment["text"],
-                }
-            )
+            segment_data = {
+                "start": segment["start"],
+                "end": segment["end"],
+                "text": segment["text"],
+            }
+            
+            if "words" in segment:
+                segment_data["words"] = segment["words"]
+            
+            segments.append(segment_data)
 
         return segments
 
