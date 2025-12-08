@@ -336,7 +336,10 @@ def cut_crop_and_burn_optimized(
     """
     duration = end_time - start_time
     
-    scale_filter = _get_scale_filter()
+    # Use CPU scale filter when burning subtitles, as subtitles filter
+    # requires CPU processing and is incompatible with GPU scale_npp
+    # GPU encoding (h264_nvenc) will still be used for the final encoding
+    scale_filter = "scale=1080:1920"
     video_codec = _get_video_codec()
     video_filter = f"crop=ih*9/16:ih,{scale_filter},subtitles={srt_path}"
     
