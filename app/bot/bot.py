@@ -33,7 +33,11 @@ async def main() -> None:
     dp.include_router(router=video.router)
     dp.include_router(router=billing.router)
 
-    logger.info("Starting Telegram bot polling")
+    logger.info(
+        f"Starting Telegram bot polling | "
+        f"API_BASE_URL={settings.API_BASE_URL} | "
+        f"REDIS_HOST={settings.REDIS_HOST}",
+    )
     await dp.start_polling(bot)
 
 

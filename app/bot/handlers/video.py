@@ -134,25 +134,12 @@ async def process_video_file(
                 logger.debug(
                     f"API health check passed | user_id={user_id}",
                 )
-        except httpx.ConnectError as e:
-            logger.error(
-                f"API connection failed | user_id={user_id} | "
-                f"api_url={settings.API_BASE_URL} | error={e} | "
-                f"Make sure API service is running",
-            )
-            await message.answer(
-                text="❌ API server is unavailable. Please check that API service is running.",
-            )
-            return
         except Exception as e:
-            logger.error(
-                f"API health check error | user_id={user_id} | "
-                f"api_url={settings.API_BASE_URL} | error={e}",
+            logger.warning(
+                f"API health check failed | user_id={user_id} | "
+                f"api_url={settings.API_BASE_URL} | error={e} | "
+                f"Will try to send file anyway",
             )
-            await message.answer(
-                text="❌ Error checking API server. Please try again later.",
-            )
-            return
 
         with open(local_path, "rb") as video_file:
             logger.debug(
