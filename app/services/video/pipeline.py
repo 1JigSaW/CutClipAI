@@ -1,3 +1,4 @@
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Optional
@@ -120,22 +121,33 @@ class VideoPipeline:
             f"Starting optimized video pipeline | file_path={file_path}",
         )
 
+        trim_start = time.time()
         trimmed_path = self.clipping_service.trim_to_max_duration(
             file_path=file_path,
         )
-
+        trim_time = time.time() - trim_start
+        
         logger.info(
-            f"Video trimmed | trimmed_path={trimmed_path}",
+            f"Video trimmed | trimmed_path={trimmed_path} | time={trim_time:.1f}s",
         )
 
+        transcription_start = time.time()
+        logger.info(
+            f"Starting Whisper transcription | video_path={trimmed_path}",
+        )
+        
         transcription_result = self.whisper_service.transcribe_full(
             video_path=trimmed_path,
             use_cache=True,
         )
-
+        
+        transcription_time = time.time() - transcription_start
+        segments_count = len(transcription_result.get("segments", []))
+        
         logger.info(
             f"Full transcription completed | "
-            f"segments_count={len(transcription_result.get('segments', []))}",
+            f"segments_count={segments_count} | time={transcription_time:.1f}s | "
+            f"speed={transcription_time/60:.2f}min for 30min video",
         )
 
         segments = []
@@ -148,12 +160,15 @@ class VideoPipeline:
                 }
             )
 
+        scoring_start = time.time()
         best_moments = self.scoring_service.select_best_moments(
             segments=segments,
         )
+        scoring_time = time.time() - scoring_start
 
         logger.info(
-            f"Selected {len(best_moments)} best moments for clipping",
+            f"Selected {len(best_moments)} best moments for clipping | "
+            f"scoring_time={scoring_time:.1f}s",
         )
 
         def process_single_clip(
@@ -206,6 +221,7 @@ class VideoPipeline:
             f"max_workers={max_workers}",
         )
 
+        clips_start = time.time()
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_clip = {
                 executor.submit(
@@ -229,10 +245,16 @@ class VideoPipeline:
                     )
                     raise
 
+        clips_time = time.time() - clips_start
         clip_paths = [clip_paths_dict[i] for i in sorted(clip_paths_dict.keys())]
 
+        total_time = time.time() - trim_start
+        
         logger.info(
-            f"Optimized pipeline completed | clips_count={len(clip_paths)}",
+            f"Optimized pipeline completed | clips_count={len(clip_paths)} | "
+            f"total_time={total_time:.1f}s | breakdown: trim={trim_time:.1f}s, "
+            f"transcribe={transcription_time:.1f}s, score={scoring_time:.1f}s, "
+            f"clips={clips_time:.1f}s",
         )
 
         cache = get_transcription_cache()

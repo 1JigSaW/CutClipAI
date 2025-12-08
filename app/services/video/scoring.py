@@ -372,7 +372,7 @@ class ScoringService:
         words: list[str],
     ) -> int:
         """
-        Count immediate word repetitions (это это это).
+        Count immediate word repetitions (e.g., "this this this").
         Indicates emotion/emphasis.
         """
         repetitions = 0

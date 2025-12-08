@@ -108,20 +108,85 @@ async def process_video_file(
         )
         return
 
+    logger.info(
+        f"Connecting to API | user_id={user_id} | "
+        f"api_url={settings.API_BASE_URL}",
+    )
+
     async with httpx.AsyncClient(
         timeout=600.0,
     ) as client:
+        try:
+            logger.debug(
+                f"Checking API health | api_url={settings.API_BASE_URL}/health",
+            )
+            health_check = await client.get(
+                url=f"{settings.API_BASE_URL}/health",
+                timeout=5.0,
+            )
+            if health_check.status_code != 200:
+                logger.warning(
+                    f"API health check failed | user_id={user_id} | "
+                    f"status_code={health_check.status_code} | "
+                    f"api_url={settings.API_BASE_URL}",
+                )
+            else:
+                logger.debug(
+                    f"API health check passed | user_id={user_id}",
+                )
+        except httpx.ConnectError as e:
+            logger.error(
+                f"API connection failed | user_id={user_id} | "
+                f"api_url={settings.API_BASE_URL} | error={e} | "
+                f"Make sure API service is running",
+            )
+            await message.answer(
+                text="❌ API server is unavailable. Please check that API service is running.",
+            )
+            return
+        except Exception as e:
+            logger.error(
+                f"API health check error | user_id={user_id} | "
+                f"api_url={settings.API_BASE_URL} | error={e}",
+            )
+            await message.answer(
+                text="❌ Error checking API server. Please try again later.",
+            )
+            return
+
         with open(local_path, "rb") as video_file:
             logger.debug(
                 f"Sending file to API | user_id={user_id} | "
-                f"file_name={file_name} | file_size={file_size}",
+                f"file_name={file_name} | file_size={file_size} | "
+                f"api_url={settings.API_BASE_URL}",
             )
 
-            response = await client.post(
-                url=f"{settings.API_BASE_URL}/video/process",
-                data={"user_id": user_id},
-                files={"file": (file_name, video_file, "video/mp4")},
-            )
+            try:
+                response = await client.post(
+                    url=f"{settings.API_BASE_URL}/video/process",
+                    data={"user_id": user_id},
+                    files={"file": (file_name, video_file, "video/mp4")},
+                )
+            except httpx.ConnectError as e:
+                logger.error(
+                    f"Failed to connect to API | user_id={user_id} | "
+                    f"api_url={settings.API_BASE_URL} | error={e}",
+                )
+                await message.answer(
+                    text="❌ Failed to connect to processing server. "
+                    "Please check that API server is running.",
+                )
+                return
+            except httpx.TimeoutException as e:
+                logger.error(
+                    f"API request timeout | user_id={user_id} | "
+                    f"api_url={settings.API_BASE_URL} | error={e}",
+                )
+                await message.answer(
+                    text="❌ Server response timeout exceeded. "
+                    "Please try again later.",
+                )
+                return
 
         if response.status_code == 402:
             error_data = {}

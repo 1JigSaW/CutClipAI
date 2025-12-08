@@ -69,6 +69,29 @@ def _get_video_codec() -> str:
     return "libx264"
 
 
+def _get_ffmpeg_preset() -> str:
+    """
+    Get FFmpeg preset for encoding.
+    Uses configured preset from settings.
+
+    Returns:
+        Preset name
+    """
+    return settings.FFMPEG_PRESET
+
+
+def _get_ffmpeg_quality() -> int:
+    """
+    Get FFmpeg quality setting (CQ value).
+    Lower value = better quality, higher file size.
+    Range: 0-51 (23 is good balance).
+
+    Returns:
+        Quality value (CQ)
+    """
+    return settings.FFMPEG_QUALITY
+
+
 def _get_scale_filter() -> str:
     """
     Get scale filter for video processing.
@@ -158,6 +181,8 @@ def trim_video(
         str(max_duration),
         "-c",
         "copy",
+        "-avoid_negative_ts",
+        "make_zero",
         "-y",
         output_path,
     ])
@@ -220,6 +245,8 @@ def crop_9_16(
     """
     scale_filter = _get_scale_filter()
     video_codec = _get_video_codec()
+    preset = _get_ffmpeg_preset()
+    quality = _get_ffmpeg_quality()
     
     cmd = _build_ffmpeg_base_cmd(
         input_path=input_path,
@@ -231,13 +258,13 @@ def crop_9_16(
         "-c:v",
         video_codec,
         "-preset",
-        "fast",
+        preset,
         "-y",
         output_path,
     ])
     
     if _get_gpu_encoding_available():
-        cmd.extend(["-rc", "vbr", "-cq", "23"])
+        cmd.extend(["-rc", "vbr", "-cq", str(quality), "-b:v", "0"])
     
     _run_ffmpeg(
         cmd=cmd,
@@ -264,13 +291,16 @@ def burn_subtitles(
         input_path=video_path,
         output_path=output_path,
     )
+    preset = _get_ffmpeg_preset()
+    quality = _get_ffmpeg_quality()
+    
     cmd.extend([
         "-vf",
         f"subtitles={srt_path}",
         "-c:v",
         video_codec,
         "-preset",
-        "fast",
+        preset,
         "-c:a",
         "copy",
         "-y",
@@ -278,7 +308,7 @@ def burn_subtitles(
     ])
     
     if _get_gpu_encoding_available():
-        cmd.extend(["-rc", "vbr", "-cq", "23"])
+        cmd.extend(["-rc", "vbr", "-cq", str(quality), "-b:v", "0"])
     
     _run_ffmpeg(
         cmd=cmd,
@@ -316,6 +346,9 @@ def cut_crop_and_burn_optimized(
     )
     cmd.insert(-2, "-ss")
     cmd.insert(-2, str(start_time))
+    preset = _get_ffmpeg_preset()
+    quality = _get_ffmpeg_quality()
+    
     cmd.extend([
         "-t",
         str(duration),
@@ -324,7 +357,7 @@ def cut_crop_and_burn_optimized(
         "-c:v",
         video_codec,
         "-preset",
-        "fast",
+        preset,
         "-c:a",
         "copy",
         "-y",
@@ -332,7 +365,7 @@ def cut_crop_and_burn_optimized(
     ])
     
     if _get_gpu_encoding_available():
-        cmd.extend(["-rc", "vbr", "-cq", "23", "-b:v", "0"])
+        cmd.extend(["-rc", "vbr", "-cq", str(quality), "-b:v", "0"])
     
     _run_ffmpeg(
         cmd=cmd,

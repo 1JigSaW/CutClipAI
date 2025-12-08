@@ -85,26 +85,44 @@ class WhisperService:
                 )
                 return cached_result
 
+        import time
+        
         logger.info(
             f"Starting full transcription with word timestamps | video_path={video_path}",
         )
 
+        beam_size = settings.WHISPER_BEAM_SIZE if settings.WHISPER_FAST_MODE else 5
+        best_of = settings.WHISPER_BEST_OF if settings.WHISPER_FAST_MODE else 5
+        
         transcribe_kwargs = {
             "audio": video_path,
-            "verbose": False,
+            "verbose": True,
             "word_timestamps": True,
+            "beam_size": beam_size,
+            "best_of": best_of,
+            "temperature": 0.0,
         }
         
         if self.gpu_available:
             transcribe_kwargs["fp16"] = True
-            logger.debug("Using FP16 precision for GPU transcription")
+            logger.info("Using FP16 precision for GPU transcription")
         
+        logger.info(
+            f"Transcribing with settings | "
+            f"beam_size={beam_size} | best_of={best_of} | "
+            f"fast_mode={settings.WHISPER_FAST_MODE} | fp16={self.gpu_available} | "
+            f"device={self.device}",
+        )
+        
+        transcribe_start = time.time()
         result = self.model.transcribe(**transcribe_kwargs)
+        transcribe_elapsed = time.time() - transcribe_start
 
         segments_count = len(result.get("segments", []))
         logger.info(
             f"Transcription completed | video_path={video_path} | "
-            f"segments_count={segments_count}",
+            f"segments_count={segments_count} | time={transcribe_elapsed:.1f}s | "
+            f"speed={transcribe_elapsed/60:.2f}min elapsed",
         )
 
         if use_cache:

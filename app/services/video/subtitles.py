@@ -102,21 +102,43 @@ class SubtitlesService:
                     f"Cache miss for source video, transcribing clip | "
                     f"video_path={video_path}",
                 )
-                result = self.model.transcribe(
-                    audio=video_path,
-                    verbose=False,
-                    word_timestamps=True,
-                )
+                beam_size = settings.WHISPER_BEAM_SIZE if settings.WHISPER_FAST_MODE else 5
+                best_of = settings.WHISPER_BEST_OF if settings.WHISPER_FAST_MODE else 5
+                
+                transcribe_kwargs = {
+                    "audio": video_path,
+                    "verbose": False,
+                    "word_timestamps": True,
+                    "beam_size": beam_size,
+                    "best_of": best_of,
+                    "temperature": 0.0,
+                }
+                
+                if self.gpu_available:
+                    transcribe_kwargs["fp16"] = True
+                
+                result = self.model.transcribe(**transcribe_kwargs)
         else:
             logger.info(
                 f"No cache info provided, transcribing clip directly | "
                 f"video_path={video_path}",
             )
-            result = self.model.transcribe(
-                audio=video_path,
-                verbose=False,
-                word_timestamps=True,
-            )
+            beam_size = settings.WHISPER_BEAM_SIZE if settings.WHISPER_FAST_MODE else 5
+            best_of = settings.WHISPER_BEST_OF if settings.WHISPER_FAST_MODE else 5
+            
+            transcribe_kwargs = {
+                "audio": video_path,
+                "verbose": False,
+                "word_timestamps": True,
+                "beam_size": beam_size,
+                "best_of": best_of,
+                "temperature": 0.0,
+            }
+            
+            if self.gpu_available:
+                transcribe_kwargs["fp16"] = True
+            
+            result = self.model.transcribe(**transcribe_kwargs)
 
         segments_count = len(result.get("segments", []))
         logger.info(f"Transcribed video | segments_count={segments_count}")

@@ -28,8 +28,13 @@ class Settings(BaseSettings):
     API_BASE_URL: str = "http://localhost:8000"
 
     WHISPER_MODEL: str = "medium"
+    WHISPER_FAST_MODE: bool = True
+    WHISPER_BEAM_SIZE: int = 1
+    WHISPER_BEST_OF: int = 1
     FORCE_CPU: bool = False
     USE_GPU_ENCODING: bool = True
+    FFMPEG_PRESET: str = "p1"
+    FFMPEG_QUALITY: int = 23
     S3_MAX_CONCURRENCY: int = 3
 
     VIDEO_MAX_DURATION_SECONDS: int = 1800

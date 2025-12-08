@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -77,28 +78,42 @@ def process_video_task(
             f"temp_path={temp_file_path} | balance={balance} | required_cost={required_cost}",
         )
 
+        download_start = time.time()
         s3_service.download_file(
             s3_key=s3_key,
             local_path=temp_file_path,
         )
+        download_time = time.time() - download_start
 
         file_size = os.path.getsize(temp_file_path)
+        file_size_mb = file_size / (1024 * 1024)
+        download_speed = file_size_mb / download_time if download_time > 0 else 0
+        
         logger.info(
-            f"Video downloaded from S3 | user_id={user_id} | size={file_size} bytes",
+            f"Video downloaded from S3 | user_id={user_id} | "
+            f"size={file_size_mb:.2f}MB | time={download_time:.1f}s | "
+            f"speed={download_speed:.2f}MB/s",
         )
 
         temp_files_to_cleanup.append(temp_file_path)
 
         logger.info(
             f"Starting video pipeline processing | user_id={user_id} | "
-            f"file_path={temp_file_path} | file_size={file_size} bytes",
+            f"file_path={temp_file_path} | file_size={file_size_mb:.2f}MB",
         )
 
         import gc
         gc.collect()
 
+        pipeline_start = time.time()
         pipeline = VideoPipeline()
         clip_paths = pipeline.process_optimized(file_path=temp_file_path)
+        pipeline_time = time.time() - pipeline_start
+        
+        logger.info(
+            f"Video pipeline completed | user_id={user_id} | "
+            f"clips_count={len(clip_paths)} | pipeline_time={pipeline_time:.1f}s",
+        )
 
         clips_count = len(clip_paths)
         cost = pricing_service.calculate_cost(clips_count=clips_count)
