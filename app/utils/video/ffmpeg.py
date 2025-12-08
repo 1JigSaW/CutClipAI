@@ -89,24 +89,34 @@ def trim_video(
 ) -> None:
     """
     Trim video to maximum duration.
+    Uses GPU hardware acceleration when available.
 
     Args:
         input_path: Path to input video
         output_path: Path to output video
         max_duration: Maximum duration in seconds
     """
+    cmd = [
+        settings.FFMPEG_PATH,
+        "-hwaccel",
+        "auto",
+        "-i",
+        input_path,
+        "-t",
+        str(max_duration),
+        "-c",
+        "copy",
+        "-y",
+        output_path,
+    ]
+    
+    logger.debug(
+        f"Trimming video with GPU acceleration | "
+        f"gpu_available={_get_gpu_encoding_available()}",
+    )
+    
     subprocess.run(
-        [
-            settings.FFMPEG_PATH,
-            "-i",
-            input_path,
-            "-t",
-            str(max_duration),
-            "-c",
-            "copy",
-            "-y",
-            output_path,
-        ],
+        cmd,
         check=True,
         capture_output=True,
     )
@@ -120,6 +130,7 @@ def cut_clip(
 ) -> None:
     """
     Cut clip from video.
+    Uses GPU hardware acceleration when available.
 
     Args:
         input_path: Path to input video
@@ -129,20 +140,30 @@ def cut_clip(
     """
     duration = end_time - start_time
 
+    cmd = [
+        settings.FFMPEG_PATH,
+        "-hwaccel",
+        "auto",
+        "-ss",
+        str(start_time),
+        "-i",
+        input_path,
+        "-t",
+        str(duration),
+        "-c",
+        "copy",
+        "-y",
+        output_path,
+    ]
+    
+    logger.debug(
+        f"Cutting clip with GPU acceleration | "
+        f"gpu_available={_get_gpu_encoding_available()} | "
+        f"start={start_time}s | end={end_time}s",
+    )
+
     subprocess.run(
-        [
-            settings.FFMPEG_PATH,
-            "-i",
-            input_path,
-            "-ss",
-            str(start_time),
-            "-t",
-            str(duration),
-            "-c",
-            "copy",
-            "-y",
-            output_path,
-        ],
+        cmd,
         check=True,
         capture_output=True,
     )
@@ -290,7 +311,9 @@ def cut_crop_and_burn_optimized(
     ]
     
     if _get_gpu_encoding_available():
-        cmd.extend(["-rc", "vbr", "-cq", "23"])
+        cmd.insert(2, "-hwaccel_output_format")
+        cmd.insert(3, "cuda")
+        cmd.extend(["-rc", "vbr", "-cq", "23", "-b:v", "0"])
     
     logger.info(
         f"Processing clip with GPU acceleration | "

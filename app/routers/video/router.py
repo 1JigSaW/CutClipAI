@@ -79,9 +79,11 @@ async def process_video(
 
     try:
         file_size = 0
-        with os.fdopen(temp_fd, "wb") as f:
+        chunk_size = 1024 * 64
+        
+        with open(temp_path, "wb") as f:
             while True:
-                chunk = await file.read(8192)
+                chunk = await file.read(chunk_size)
                 if not chunk:
                     break
                 f.write(chunk)

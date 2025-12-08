@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     CLIP_MIN_DURATION_SECONDS: int = 20
     CLIP_MAX_DURATION_SECONDS: int = 60
     MAX_CLIPS_COUNT: int = 3
+    CLIP_PROCESSING_MAX_WORKERS: int = 3
     
     SCORING_WEIGHT_ENERGY: float = 3.0
     SCORING_WEIGHT_TEMPO_VARIATION: float = 2.5

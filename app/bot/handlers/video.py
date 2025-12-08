@@ -229,40 +229,53 @@ async def process_video_file(
             s3_service = S3Service()
             temp_clip_files = []
 
+            async def download_and_send_clip(
+                idx: int,
+                clip_s3_key: str,
+            ) -> str:
+                logger.debug(
+                    f"Downloading clip {idx}/{clips_count} | user_id={user_id} | "
+                    f"s3_key={clip_s3_key}",
+                )
+
+                clip_extension = Path(clip_s3_key).suffix
+                temp_fd, temp_clip_path = tempfile.mkstemp(
+                    suffix=clip_extension,
+                    dir=settings.TEMP_DIR,
+                )
+                os.close(temp_fd)
+
+                s3_service.download_file(
+                    s3_key=clip_s3_key,
+                    local_path=temp_clip_path,
+                )
+
+                logger.debug(
+                    f"Sending clip {idx}/{clips_count} to user | user_id={user_id} | "
+                    f"path={temp_clip_path}",
+                )
+
+                video_input = FSInputFile(path=temp_clip_path)
+                await message.answer_video(
+                    video=video_input,
+                )
+
+                logger.debug(
+                    f"Sent clip {idx}/{clips_count} to user | user_id={user_id}",
+                )
+
+                return temp_clip_path
+
             try:
-                for idx, clip_s3_key in enumerate(clip_s3_keys, 1):
-                    logger.debug(
-                        f"Downloading clip {idx}/{clips_count} | user_id={user_id} | "
-                        f"s3_key={clip_s3_key}",
+                tasks = [
+                    download_and_send_clip(
+                        idx=idx,
+                        clip_s3_key=clip_s3_key,
                     )
-
-                    clip_extension = Path(clip_s3_key).suffix
-                    temp_fd, temp_clip_path = tempfile.mkstemp(
-                        suffix=clip_extension,
-                        dir=settings.TEMP_DIR,
-                    )
-                    os.close(temp_fd)
-
-                    s3_service.download_file(
-                        s3_key=clip_s3_key,
-                        local_path=temp_clip_path,
-                    )
-
-                    temp_clip_files.append(temp_clip_path)
-
-                    logger.debug(
-                        f"Sending clip {idx}/{clips_count} to user | user_id={user_id} | "
-                        f"path={temp_clip_path}",
-                    )
-
-                    video_input = FSInputFile(path=temp_clip_path)
-                    await message.answer_video(
-                        video=video_input,
-                    )
-
-                    logger.debug(
-                        f"Sent clip {idx}/{clips_count} to user | user_id={user_id}",
-                    )
+                    for idx, clip_s3_key in enumerate(clip_s3_keys, 1)
+                ]
+                
+                temp_clip_files = await asyncio.gather(*tasks)
             finally:
                 for temp_clip_path in temp_clip_files:
                     if os.path.exists(temp_clip_path):
@@ -433,8 +446,9 @@ async def handle_text_message(
                     await message.answer(text=ERROR_MESSAGE)
                     return
 
-                with open(local_path, "wb") as f:
-                    async for chunk in response.aiter_bytes(chunk_size=1024 * 128):
+                buffer_size = 1024 * 256
+                with open(local_path, "wb", buffering=buffer_size) as f:
+                    async for chunk in response.aiter_bytes(chunk_size=buffer_size):
                         f.write(chunk)
                         downloaded_bytes += len(chunk)
 

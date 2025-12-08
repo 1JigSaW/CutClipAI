@@ -1,6 +1,8 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Optional
 
+from app.core.config import settings
 from app.core.logger import get_logger
 from app.services.video.clipping import ClippingService
 from app.services.video.scoring import ScoringService
@@ -154,8 +156,10 @@ class VideoPipeline:
             f"Selected {len(best_moments)} best moments for clipping",
         )
 
-        clip_paths = []
-        for idx, moment in enumerate(best_moments, 1):
+        def process_single_clip(
+            idx: int,
+            moment: dict[str, Any],
+        ) -> tuple[int, str]:
             logger.info(
                 f"Processing clip {idx}/{len(best_moments)} | "
                 f"start={moment['start']:.2f}s | end={moment['end']:.2f}s",
@@ -189,7 +193,43 @@ class VideoPipeline:
                 f"path={final_clip_path}",
             )
 
-            clip_paths.append(str(final_clip_path))
+            return idx, str(final_clip_path)
+
+        clip_paths_dict = {}
+        max_workers = min(
+            len(best_moments),
+            settings.CLIP_PROCESSING_MAX_WORKERS,
+        )
+        
+        logger.info(
+            f"Processing {len(best_moments)} clips in parallel | "
+            f"max_workers={max_workers}",
+        )
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_clip = {
+                executor.submit(
+                    process_single_clip,
+                    idx=idx,
+                    moment=moment,
+                ): (idx, moment)
+                for idx, moment in enumerate(best_moments, 1)
+            }
+
+            for future in as_completed(future_to_clip):
+                try:
+                    clip_idx, clip_path = future.result()
+                    clip_paths_dict[clip_idx] = clip_path
+                except Exception as e:
+                    idx, moment = future_to_clip[future]
+                    logger.error(
+                        f"Failed to process clip {idx} | "
+                        f"start={moment['start']:.2f}s | end={moment['end']:.2f}s | "
+                        f"error={e}",
+                    )
+                    raise
+
+        clip_paths = [clip_paths_dict[i] for i in sorted(clip_paths_dict.keys())]
 
         logger.info(
             f"Optimized pipeline completed | clips_count={len(clip_paths)}",
