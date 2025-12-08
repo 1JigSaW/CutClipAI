@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from app.core.celery_app import celery_app
 from app.core.logger import get_logger, log_error
 from app.services.storage.s3 import S3Service
+from app.utils.billing.validators import check_balance_for_video_processing
 from app.workers.video.worker import process_video_task
 
 logger = get_logger(__name__)
@@ -53,12 +54,27 @@ async def process_video(
         logger.error(f"Received request without file | user_id={user_id}")
         raise HTTPException(status_code=400, detail="File is required")
 
+    has_sufficient_balance, balance, required_cost = check_balance_for_video_processing(
+        user_id=user_id,
+    )
+    
+    if not has_sufficient_balance:
+        logger.warning(
+            f"Insufficient balance before processing | user_id={user_id} | "
+            f"balance={balance} | required={required_cost}",
+        )
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient balance. Required: {required_cost} coins, have: {balance} coins",
+        )
+
     file_name = file.filename or "video.mp4"
     suffix = os.path.splitext(file_name)[1]
     temp_fd, temp_path = tempfile.mkstemp(suffix=suffix, dir="/tmp")
 
     logger.info(
-        f"Received video upload request | user_id={user_id} | filename={file_name}",
+        f"Received video upload request | user_id={user_id} | filename={file_name} | "
+        f"balance={balance} | required_cost={required_cost}",
     )
 
     try:

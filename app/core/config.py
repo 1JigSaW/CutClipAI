@@ -29,6 +29,8 @@ class Settings(BaseSettings):
 
     WHISPER_MODEL: str = "medium"
     FORCE_CPU: bool = False
+    USE_GPU_ENCODING: bool = True
+    S3_MAX_CONCURRENCY: int = 3
 
     VIDEO_MAX_DURATION_SECONDS: int = 1800
     CLIP_MIN_DURATION_SECONDS: int = 20

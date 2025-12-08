@@ -8,6 +8,9 @@ from botocore.exceptions import ClientError
 from boto3.s3.transfer import TransferConfig
 
 from app.core.config import settings
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class S3Service:
@@ -40,9 +43,14 @@ class S3Service:
             **s3_client_kwargs,
         )
 
+        max_concurrency = settings.S3_MAX_CONCURRENCY
+        logger.info(
+            f"S3 TransferConfig initialized | max_concurrency={max_concurrency}",
+        )
+        
         self.transfer_config = TransferConfig(
             multipart_threshold=1024 * 25,
-            max_concurrency=10,
+            max_concurrency=max_concurrency,
             multipart_chunksize=1024 * 25,
             use_threads=True,
         )

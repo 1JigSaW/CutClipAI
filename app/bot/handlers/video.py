@@ -19,6 +19,7 @@ from app.bot.texts.messages import (
 from app.core.config import settings
 from app.core.logger import get_logger, log_error
 from app.services.storage.s3 import S3Service
+from app.utils.billing.validators import check_balance_for_video_processing
 from app.utils.video.google_drive import (
     extract_file_id_from_url,
     get_download_url_via_api,
@@ -89,6 +90,24 @@ async def process_video_file(
         f"file={file_name} | size={file_size} bytes",
     )
 
+    has_sufficient_balance, balance, required_cost = check_balance_for_video_processing(
+        user_id=user_id,
+    )
+    
+    if not has_sufficient_balance:
+        logger.warning(
+            f"Insufficient balance before processing | user_id={user_id} | "
+            f"balance={balance} | required={required_cost}",
+        )
+        await message.answer(
+            text=NO_COINS_MESSAGE.format(
+                required=required_cost,
+                balance=balance,
+            ),
+            reply_markup=get_buy_coins_keyboard(),
+        )
+        return
+
     async with httpx.AsyncClient(
         timeout=600.0,
     ) as client:
@@ -104,6 +123,37 @@ async def process_video_file(
                 files={"file": (file_name, video_file, "video/mp4")},
             )
 
+        if response.status_code == 402:
+            error_data = {}
+            try:
+                error_data = response.json()
+            except Exception:
+                pass
+            
+            error_detail = error_data.get("detail", "Insufficient balance")
+            logger.warning(
+                f"Insufficient balance for video processing | user_id={user_id} | "
+                f"error={error_detail}",
+            )
+            
+            balance_response = await client.get(
+                url=f"{settings.API_BASE_URL}/billing/balance/{user_id}",
+            )
+            balance = 0
+            if balance_response.status_code == 200:
+                balance_data = balance_response.json()
+                balance = balance_data.get("balance", 0)
+            
+            max_cost = settings.MAX_CLIPS_COUNT * settings.COINS_PER_CLIP
+            await message.answer(
+                text=NO_COINS_MESSAGE.format(
+                    required=max_cost,
+                    balance=balance,
+                ),
+                reply_markup=get_buy_coins_keyboard(),
+            )
+            return
+        
         if response.status_code != 200:
             error_detail = ""
             try:
@@ -339,6 +389,24 @@ async def handle_text_message(
             )
             await message.answer(
                 text="❌ Google Drive API is not configured. Please contact administrator.",
+            )
+            return
+
+        has_sufficient_balance, balance, required_cost = check_balance_for_video_processing(
+            user_id=user_id,
+        )
+        
+        if not has_sufficient_balance:
+            logger.warning(
+                f"Insufficient balance before download | user_id={user_id} | "
+                f"balance={balance} | required={required_cost}",
+            )
+            await message.answer(
+                text=NO_COINS_MESSAGE.format(
+                    required=required_cost,
+                    balance=balance,
+                ),
+                reply_markup=get_buy_coins_keyboard(),
             )
             return
 

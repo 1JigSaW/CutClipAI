@@ -14,6 +14,7 @@ from app.services.billing.wallet import WalletService
 from app.services.storage.s3 import S3Service
 from app.services.video.pipeline import VideoPipeline
 from app.services.video.subtitles import SubtitlesService
+from app.utils.billing.validators import check_balance_for_video_processing
 from app.utils.video.ffmpeg import cut_crop_and_burn_optimized
 from app.utils.video.files import create_temp_dir, delete_temp_files
 
@@ -45,6 +46,22 @@ def process_video_task(
     pricing_service = PricingService()
     s3_service = S3Service()
 
+    has_sufficient_balance, balance, required_cost = check_balance_for_video_processing(
+        user_id=user_id,
+        wallet_service=wallet_service,
+    )
+    
+    if not has_sufficient_balance:
+        logger.warning(
+            f"Insufficient balance before processing | user_id={user_id} | "
+            f"balance={balance} | required={required_cost}",
+        )
+        return {
+            "status": "no_coins",
+            "message": "Insufficient balance",
+            "clips_count": settings.MAX_CLIPS_COUNT,
+        }
+
     temp_file_path = None
     temp_files_to_cleanup = []
 
@@ -58,7 +75,7 @@ def process_video_task(
 
         logger.info(
             f"Downloading video from S3 | user_id={user_id} | s3_key={s3_key} | "
-            f"temp_path={temp_file_path}",
+            f"temp_path={temp_file_path} | balance={balance} | required_cost={required_cost}",
         )
 
         s3_service.download_file(

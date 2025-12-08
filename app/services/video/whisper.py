@@ -89,11 +89,17 @@ class WhisperService:
             f"Starting full transcription with word timestamps | video_path={video_path}",
         )
 
-        result = self.model.transcribe(
-            audio=video_path,
-            verbose=False,
-            word_timestamps=True,
-        )
+        transcribe_kwargs = {
+            "audio": video_path,
+            "verbose": False,
+            "word_timestamps": True,
+        }
+        
+        if self.gpu_available:
+            transcribe_kwargs["fp16"] = True
+            logger.debug("Using FP16 precision for GPU transcription")
+        
+        result = self.model.transcribe(**transcribe_kwargs)
 
         segments_count = len(result.get("segments", []))
         logger.info(
