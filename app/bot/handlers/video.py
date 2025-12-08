@@ -366,7 +366,7 @@ async def handle_text_message(
                     return
 
                 with open(local_path, "wb") as f:
-                    async for chunk in response.aiter_bytes(chunk_size=8192):
+                    async for chunk in response.aiter_bytes(chunk_size=1024 * 128):
                         f.write(chunk)
                         downloaded_bytes += len(chunk)
 

@@ -5,6 +5,7 @@ from typing import Optional
 
 import boto3
 from botocore.exceptions import ClientError
+from boto3.s3.transfer import TransferConfig
 
 from app.core.config import settings
 
@@ -39,6 +40,13 @@ class S3Service:
             **s3_client_kwargs,
         )
 
+        self.transfer_config = TransferConfig(
+            multipart_threshold=1024 * 25,
+            max_concurrency=10,
+            multipart_chunksize=1024 * 25,
+            use_threads=True,
+        )
+
     def upload_file(
         self,
         file_path: str,
@@ -66,6 +74,7 @@ class S3Service:
                 Filename=file_path,
                 Bucket=self.bucket_name,
                 Key=s3_key,
+                Config=self.transfer_config,
             )
             return s3_key
         except ClientError as e:
@@ -97,6 +106,7 @@ class S3Service:
                 Bucket=self.bucket_name,
                 Key=s3_key,
                 Filename=str(local_path),
+                Config=self.transfer_config,
             )
             return str(local_path)
         except ClientError as e:
