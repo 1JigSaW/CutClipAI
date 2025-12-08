@@ -16,14 +16,26 @@ AI-powered video clipping service with automatic subtitle generation.
 
 ```
 app/
-  core/           # System configuration
-  models/         # Database models
-  routers/        # API endpoints
-  services/       # Business logic
-  workers/        # Background tasks
-  utils/          # Helper functions
-  bot/            # Telegram bot
+  api/            # FastAPI application entry point
+  bot/            # Telegram bot (handlers, keyboards, messages)
+  core/           # System configuration (config, database, logger, celery)
+  models/         # Database models (SQLAlchemy)
+  routers/        # API endpoints (FastAPI routes)
+  services/       # Business logic (video processing, billing, storage)
+  workers/        # Background tasks (Celery workers)
+  utils/          # Helper functions (video utils, validators)
 ```
+
+**Подробная документация:** См. [ARCHITECTURE.md](./ARCHITECTURE.md)
+
+### Основные компоненты
+
+- **routers/** - HTTP endpoints, валидация запросов
+- **services/** - Вся бизнес-логика (обработка видео, биллинг)
+- **workers/** - Фоновые задачи через Celery
+- **bot/** - Telegram бот (обработчики, клавиатуры)
+- **utils/** - Переиспользуемые утилиты
+- **core/** - Системная конфигурация
 
 ## Quickstart
 

@@ -12,6 +12,7 @@ from app.core.celery_app import celery_app
 from app.core.logger import get_logger, log_error
 from app.services.storage.s3 import S3Service
 from app.utils.billing.validators import check_balance_for_video_processing
+from app.utils.video.files import temp_file_context
 from app.workers.video.worker import process_video_task
 
 logger = get_logger(__name__)
@@ -70,7 +71,6 @@ async def process_video(
 
     file_name = file.filename or "video.mp4"
     suffix = os.path.splitext(file_name)[1]
-    temp_fd, temp_path = tempfile.mkstemp(suffix=suffix, dir="/tmp")
 
     logger.info(
         f"Received video upload request | user_id={user_id} | filename={file_name} | "
@@ -78,44 +78,45 @@ async def process_video(
     )
 
     try:
-        file_size = 0
-        chunk_size = 1024 * 64
-        
-        with open(temp_path, "wb") as f:
-            while True:
-                chunk = await file.read(chunk_size)
-                if not chunk:
-                    break
-                f.write(chunk)
-                file_size += len(chunk)
+        with temp_file_context(
+            suffix=suffix,
+            prefix="upload_",
+        ) as temp_path:
+            file_size = 0
+            chunk_size = 1024 * 64
+            
+            with open(temp_path, "wb") as f:
+                while True:
+                    chunk = await file.read(chunk_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    file_size += len(chunk)
 
-        logger.info(
-            f"Video file saved to temp | user_id={user_id} | "
-            f"size={file_size} bytes | path={temp_path}",
-        )
+            logger.info(
+                f"Video file saved to temp | user_id={user_id} | "
+                f"size={file_size} bytes | path={temp_path}",
+            )
 
-        s3_service = S3Service()
-        s3_key = s3_service.upload_file(
-            file_path=temp_path,
-            prefix=f"videos/input/{user_id}",
-        )
+            s3_service = S3Service()
+            s3_key = s3_service.upload_file(
+                file_path=temp_path,
+                prefix=f"videos/input/{user_id}",
+            )
 
-        logger.info(
-            f"Video uploaded to S3 | user_id={user_id} | s3_key={s3_key}",
-        )
+            logger.info(
+                f"Video uploaded to S3 | user_id={user_id} | s3_key={s3_key}",
+            )
 
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
+            task = process_video_task.delay(
+                s3_key=s3_key,
+                user_id=user_id,
+            )
 
-        task = process_video_task.delay(
-            s3_key=s3_key,
-            user_id=user_id,
-        )
-
-        logger.info(
-            f"Video processing task created | user_id={user_id} | "
-            f"task_id={task.id} | s3_key={s3_key}",
-        )
+            logger.info(
+                f"Video processing task created | user_id={user_id} | "
+                f"task_id={task.id} | s3_key={s3_key}",
+            )
 
     except Exception as e:
         log_error(
@@ -124,11 +125,8 @@ async def process_video(
             error=e,
             context={
                 "filename": file_name,
-                "file_size": file_size if "file_size" in locals() else None,
             },
         )
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
         raise
 
     return ProcessVideoResponse(

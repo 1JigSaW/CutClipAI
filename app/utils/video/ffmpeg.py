@@ -82,6 +82,59 @@ def _get_scale_filter() -> str:
     return "scale=1080:1920"
 
 
+def _build_ffmpeg_base_cmd(
+    input_path: str,
+    output_path: str,
+    use_gpu: bool = True,
+) -> list[str]:
+    """
+    Build base FFmpeg command with GPU acceleration.
+
+    Args:
+        input_path: Path to input video
+        output_path: Path to output video
+        use_gpu: Whether to use GPU acceleration
+
+    Returns:
+        Base FFmpeg command list
+    """
+    cmd = [
+        settings.FFMPEG_PATH,
+        "-hwaccel",
+        "auto",
+    ]
+    
+    if use_gpu and _get_gpu_encoding_available():
+        cmd.extend(["-hwaccel_output_format", "cuda"])
+    
+    cmd.extend(["-i", input_path])
+    
+    return cmd
+
+
+def _run_ffmpeg(
+    cmd: list[str],
+    operation: str = "video processing",
+) -> None:
+    """
+    Run FFmpeg command with error handling.
+
+    Args:
+        cmd: FFmpeg command list
+        operation: Description of operation for logging
+    """
+    logger.debug(
+        f"Running FFmpeg {operation} | "
+        f"gpu_available={_get_gpu_encoding_available()}",
+    )
+    
+    subprocess.run(
+        cmd,
+        check=True,
+        capture_output=True,
+    )
+
+
 def trim_video(
     input_path: str,
     output_path: str,
@@ -96,29 +149,22 @@ def trim_video(
         output_path: Path to output video
         max_duration: Maximum duration in seconds
     """
-    cmd = [
-        settings.FFMPEG_PATH,
-        "-hwaccel",
-        "auto",
-        "-i",
-        input_path,
+    cmd = _build_ffmpeg_base_cmd(
+        input_path=input_path,
+        output_path=output_path,
+    )
+    cmd.extend([
         "-t",
         str(max_duration),
         "-c",
         "copy",
         "-y",
         output_path,
-    ]
+    ])
     
-    logger.debug(
-        f"Trimming video with GPU acceleration | "
-        f"gpu_available={_get_gpu_encoding_available()}",
-    )
-    
-    subprocess.run(
-        cmd,
-        check=True,
-        capture_output=True,
+    _run_ffmpeg(
+        cmd=cmd,
+        operation="trim",
     )
 
 
@@ -140,32 +186,24 @@ def cut_clip(
     """
     duration = end_time - start_time
 
-    cmd = [
-        settings.FFMPEG_PATH,
-        "-hwaccel",
-        "auto",
-        "-ss",
-        str(start_time),
-        "-i",
-        input_path,
+    cmd = _build_ffmpeg_base_cmd(
+        input_path=input_path,
+        output_path=output_path,
+    )
+    cmd.insert(-2, "-ss")
+    cmd.insert(-2, str(start_time))
+    cmd.extend([
         "-t",
         str(duration),
         "-c",
         "copy",
         "-y",
         output_path,
-    ]
+    ])
     
-    logger.debug(
-        f"Cutting clip with GPU acceleration | "
-        f"gpu_available={_get_gpu_encoding_available()} | "
-        f"start={start_time}s | end={end_time}s",
-    )
-
-    subprocess.run(
-        cmd,
-        check=True,
-        capture_output=True,
+    _run_ffmpeg(
+        cmd=cmd,
+        operation=f"cut clip (start={start_time}s, end={end_time}s)",
     )
 
 
@@ -183,12 +221,11 @@ def crop_9_16(
     scale_filter = _get_scale_filter()
     video_codec = _get_video_codec()
     
-    cmd = [
-        settings.FFMPEG_PATH,
-        "-hwaccel",
-        "auto",
-        "-i",
-        input_path,
+    cmd = _build_ffmpeg_base_cmd(
+        input_path=input_path,
+        output_path=output_path,
+    )
+    cmd.extend([
         "-vf",
         f"crop=ih*9/16:ih,{scale_filter}",
         "-c:v",
@@ -197,21 +234,14 @@ def crop_9_16(
         "fast",
         "-y",
         output_path,
-    ]
+    ])
     
     if _get_gpu_encoding_available():
         cmd.extend(["-rc", "vbr", "-cq", "23"])
     
-    logger.debug(
-        f"Cropping video with GPU acceleration | "
-        f"gpu_available={_get_gpu_encoding_available()} | "
-        f"codec={video_codec}",
-    )
-    
-    subprocess.run(
-        cmd,
-        check=True,
-        capture_output=True,
+    _run_ffmpeg(
+        cmd=cmd,
+        operation=f"crop to 9:16 (codec={video_codec})",
     )
 
 
@@ -230,12 +260,11 @@ def burn_subtitles(
     """
     video_codec = _get_video_codec()
     
-    cmd = [
-        settings.FFMPEG_PATH,
-        "-hwaccel",
-        "auto",
-        "-i",
-        video_path,
+    cmd = _build_ffmpeg_base_cmd(
+        input_path=video_path,
+        output_path=output_path,
+    )
+    cmd.extend([
         "-vf",
         f"subtitles={srt_path}",
         "-c:v",
@@ -246,21 +275,14 @@ def burn_subtitles(
         "copy",
         "-y",
         output_path,
-    ]
+    ])
     
     if _get_gpu_encoding_available():
         cmd.extend(["-rc", "vbr", "-cq", "23"])
     
-    logger.debug(
-        f"Burning subtitles with GPU acceleration | "
-        f"gpu_available={_get_gpu_encoding_available()} | "
-        f"codec={video_codec}",
-    )
-    
-    subprocess.run(
-        cmd,
-        check=True,
-        capture_output=True,
+    _run_ffmpeg(
+        cmd=cmd,
+        operation=f"burn subtitles (codec={video_codec})",
     )
 
 
@@ -288,14 +310,13 @@ def cut_crop_and_burn_optimized(
     video_codec = _get_video_codec()
     video_filter = f"crop=ih*9/16:ih,{scale_filter},subtitles={srt_path}"
     
-    cmd = [
-        settings.FFMPEG_PATH,
-        "-hwaccel",
-        "auto",
-        "-ss",
-        str(start_time),
-        "-i",
-        input_path,
+    cmd = _build_ffmpeg_base_cmd(
+        input_path=input_path,
+        output_path=output_path,
+    )
+    cmd.insert(-2, "-ss")
+    cmd.insert(-2, str(start_time))
+    cmd.extend([
         "-t",
         str(duration),
         "-vf",
@@ -308,22 +329,13 @@ def cut_crop_and_burn_optimized(
         "copy",
         "-y",
         output_path,
-    ]
+    ])
     
     if _get_gpu_encoding_available():
-        cmd.insert(2, "-hwaccel_output_format")
-        cmd.insert(3, "cuda")
         cmd.extend(["-rc", "vbr", "-cq", "23", "-b:v", "0"])
     
-    logger.info(
-        f"Processing clip with GPU acceleration | "
-        f"gpu_available={_get_gpu_encoding_available()} | "
-        f"codec={video_codec} | start={start_time}s | end={end_time}s",
-    )
-    
-    subprocess.run(
-        cmd,
-        check=True,
-        capture_output=True,
+    _run_ffmpeg(
+        cmd=cmd,
+        operation=f"cut, crop and burn (codec={video_codec}, start={start_time}s, end={end_time}s)",
     )
 

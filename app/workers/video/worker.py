@@ -16,7 +16,7 @@ from app.services.video.pipeline import VideoPipeline
 from app.services.video.subtitles import SubtitlesService
 from app.utils.billing.validators import check_balance_for_video_processing
 from app.utils.video.ffmpeg import cut_crop_and_burn_optimized
-from app.utils.video.files import create_temp_dir, delete_temp_files
+from app.utils.video.files import create_temp_dir, create_temp_file, delete_temp_files
 
 logger = get_logger(__name__)
 
@@ -67,11 +67,10 @@ def process_video_task(
 
     try:
         suffix = Path(s3_key).suffix
-        temp_fd, temp_file_path = tempfile.mkstemp(
+        temp_file_path = create_temp_file(
             suffix=suffix,
-            dir=settings.TEMP_DIR,
+            prefix="video_",
         )
-        os.close(temp_fd)
 
         logger.info(
             f"Downloading video from S3 | user_id={user_id} | s3_key={s3_key} | "
@@ -92,37 +91,14 @@ def process_video_task(
 
         logger.info(
             f"Starting video pipeline processing | user_id={user_id} | "
-            f"file_path={temp_file_path}",
+            f"file_path={temp_file_path} | file_size={file_size} bytes",
         )
 
         import gc
         gc.collect()
 
-        logger.info(
-            f"Before pipeline.process call | user_id={user_id} | "
-            f"file_size={file_size} bytes",
-        )
-
-        logger.info(
-            f"Creating VideoPipeline instance | user_id={user_id}",
-        )
-
         pipeline = VideoPipeline()
-
-        logger.info(
-            f"VideoPipeline created successfully | user_id={user_id}",
-        )
-
-        logger.info(
-            f"Using OPTIMIZED pipeline for processing | user_id={user_id}",
-        )
-
         clip_paths = pipeline.process_optimized(file_path=temp_file_path)
-
-        logger.info(
-            f"After pipeline.process call | user_id={user_id} | "
-            f"clips_count={len(clip_paths)}",
-        )
 
         clips_count = len(clip_paths)
         cost = pricing_service.calculate_cost(clips_count=clips_count)
