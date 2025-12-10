@@ -3,8 +3,6 @@
 # CutClipAI - Stop script
 # Stops all running services
 
-set -e
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -18,29 +16,29 @@ echo -e "${YELLOW}🛑 Stopping CutClipAI services...${NC}"
 
 # Stop processes by PID files
 if [ -f "logs/api.pid" ]; then
-    API_PID=$(cat logs/api.pid)
-    if ps -p $API_PID > /dev/null 2>&1; then
+    API_PID=$(cat logs/api.pid 2>/dev/null || echo "")
+    if [ ! -z "$API_PID" ] && ps -p $API_PID > /dev/null 2>&1; then
         echo -e "${YELLOW}   Stopping API server (PID: $API_PID)...${NC}"
         kill $API_PID 2>/dev/null || true
-        rm logs/api.pid
+        rm -f logs/api.pid
     fi
 fi
 
 if [ -f "logs/celery.pid" ]; then
-    CELERY_PID=$(cat logs/celery.pid)
-    if ps -p $CELERY_PID > /dev/null 2>&1; then
+    CELERY_PID=$(cat logs/celery.pid 2>/dev/null || echo "")
+    if [ ! -z "$CELERY_PID" ] && ps -p $CELERY_PID > /dev/null 2>&1; then
         echo -e "${YELLOW}   Stopping Celery worker (PID: $CELERY_PID)...${NC}"
         kill $CELERY_PID 2>/dev/null || true
-        rm logs/celery.pid
+        rm -f logs/celery.pid
     fi
 fi
 
 if [ -f "logs/bot.pid" ]; then
-    BOT_PID=$(cat logs/bot.pid)
-    if ps -p $BOT_PID > /dev/null 2>&1; then
+    BOT_PID=$(cat logs/bot.pid 2>/dev/null || echo "")
+    if [ ! -z "$BOT_PID" ] && ps -p $BOT_PID > /dev/null 2>&1; then
         echo -e "${YELLOW}   Stopping Telegram bot (PID: $BOT_PID)...${NC}"
         kill $BOT_PID 2>/dev/null || true
-        rm logs/bot.pid
+        rm -f logs/bot.pid
     fi
 fi
 
@@ -57,16 +55,12 @@ pkill -f "celery -A app.core.celery_app worker" 2>/dev/null || true
 pkill -f "python3 -m app.bot.bot" 2>/dev/null || true
 
 # Wait a bit for processes to stop
-sleep 2
+sleep 1
 
 # Force kill if still running
 pkill -9 -f "uvicorn app.api.main:app" 2>/dev/null || true
 pkill -9 -f "celery -A app.core.celery_app worker" 2>/dev/null || true
 pkill -9 -f "python3 -m app.bot.bot" 2>/dev/null || true
-
-# Stop Docker services (optional - uncomment if you want to stop PostgreSQL and Redis too)
-# echo -e "${YELLOW}   Stopping Docker services...${NC}"
-# docker-compose stop postgres redis 2>/dev/null || true
 
 echo -e "${GREEN}✅ All services stopped${NC}"
 
