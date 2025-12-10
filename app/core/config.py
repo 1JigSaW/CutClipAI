@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     SCORING_WEIGHT_PAUSES: float = 2.0
     SCORING_WEIGHT_PUNCTUATION: float = 1.5
     SCORING_WEIGHT_SPEECH_PACE: float = 2.0
+    SCORING_WEIGHT_STRUCTURE: float = 2.5  # Bonus for video structure (beginning/end)
+    SCORING_WEIGHT_HOOK: float = 3.0  # Bonus for hook patterns (questions, statements)
 
     START_BALANCE_COINS: int = 5
     COINS_PER_CLIP: int = 1

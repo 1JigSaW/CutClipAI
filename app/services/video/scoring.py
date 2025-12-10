@@ -94,6 +94,9 @@ class ScoringService:
         clips = []
         i = 0
         max_pause = 3.0
+        
+        # Get total video duration for structure scoring
+        total_duration = segments[-1]["end"] if segments else 0
 
         while i < len(segments):
             clip_start = segments[i]["start"]
@@ -131,7 +134,10 @@ class ScoringService:
                     "words": all_words,
                 }
                 
-                clip_score = self._calculate_score(segment=combined_segment)
+                clip_score = self._calculate_score(
+                    segment=combined_segment,
+                    total_duration=total_duration,
+                )
                 
                 clips.append({
                     "start": clip_start,
@@ -147,6 +153,7 @@ class ScoringService:
     def _calculate_score(
         self,
         segment: dict[str, Any],
+        total_duration: float = 0.0,
     ) -> float:
         """
         Calculate score based on speech dynamics and emotion indicators.
@@ -158,9 +165,12 @@ class ScoringService:
         - Pause patterns (emotional pauses)
         - Punctuation (?, !, ...)
         - Word repetitions
+        - Video structure (beginning/end bonus)
+        - Hook patterns (questions, statements)
 
         Args:
             segment: Segment dictionary with optional 'words' timestamps
+            total_duration: Total video duration for structure scoring
 
         Returns:
             Weighted score value
@@ -168,6 +178,7 @@ class ScoringService:
         text = segment.get("text", "").strip()
         duration = segment.get("end", 0) - segment.get("start", 0)
         words_data = segment.get("words", [])
+        start_time = segment.get("start", 0)
         
         if duration <= 0:
             return 0.0
@@ -196,11 +207,23 @@ class ScoringService:
         )
         score += pace_score * settings.SCORING_WEIGHT_SPEECH_PACE
         
+        # Structure bonus (beginning/end of video)
+        structure_score = self._score_structure(
+            start_time=start_time,
+            total_duration=total_duration,
+        )
+        score += structure_score * settings.SCORING_WEIGHT_STRUCTURE
+        
+        # Hook detection bonus
+        hook_score = self._score_hook_patterns(text=text)
+        score += hook_score * settings.SCORING_WEIGHT_HOOK
+        
         logger.debug(
             f"Segment score breakdown | "
             f"energy={energy_score:.2f} | tempo={tempo_score:.2f} | "
             f"pauses={pause_score:.2f} | punctuation={punctuation_score:.2f} | "
-            f"pace={pace_score:.2f} | total={score:.2f}",
+            f"pace={pace_score:.2f} | structure={structure_score:.2f} | "
+            f"hook={hook_score:.2f} | total={score:.2f}",
         )
         
         return score
@@ -428,6 +451,106 @@ class ScoringService:
                 selected.append(candidate)
         
         return selected
+    
+    def _score_structure(
+        self,
+        start_time: float,
+        total_duration: float,
+    ) -> float:
+        """
+        Score based on video structure position.
+        Beginning and end of video are more important.
+        
+        Args:
+            start_time: Start time of segment in seconds
+            total_duration: Total video duration in seconds
+            
+        Returns:
+            Structure score (0-10)
+        """
+        if total_duration <= 0:
+            return 5.0  # Neutral score if duration unknown
+        
+        position_ratio = start_time / total_duration
+        
+        # Beginning bonus (first 10% of video)
+        if position_ratio <= 0.1:
+            # Linear decay from 10.0 to 5.0
+            score = 10.0 - (position_ratio / 0.1) * 5.0
+        # End bonus (last 10% of video)
+        elif position_ratio >= 0.9:
+            # Linear increase from 5.0 to 10.0
+            score = 5.0 + ((position_ratio - 0.9) / 0.1) * 5.0
+        # Middle section (neutral)
+        else:
+            score = 5.0
+        
+        return min(score, 10.0)
+    
+    def _score_hook_patterns(
+        self,
+        text: str,
+    ) -> float:
+        """
+        Detect hook patterns that grab attention.
+        
+        Hook patterns:
+        - Questions at the start
+        - Strong statements/claims
+        - Numbers/facts
+        - Contrasts ("but", "however", "actually")
+        - Personal stories ("I", "me", "my")
+        
+        Args:
+            text: Segment text
+            
+        Returns:
+            Hook score (0-10)
+        """
+        if not text:
+            return 0.0
+        
+        score = 0.0
+        text_lower = text.lower()
+        words = text.split()
+        first_words = " ".join(words[:5]).lower() if len(words) >= 5 else text_lower
+        
+        # Questions at the start (strong hook)
+        if first_words.startswith(("знаете", "знаешь", "знали", "знали ли", "do you", "did you", "have you", "are you", "is it", "what if", "what", "why", "how")):
+            score += 5.0
+        
+        # Questions anywhere
+        if "?" in text:
+            question_count = text.count("?")
+            score += min(question_count * 1.5, 3.0)
+        
+        # Strong statements/claims
+        strong_starters = ("вот", "это", "так вот", "дело в том", "here's", "this is", "the thing is", "here's the thing"):
+        if any(first_words.startswith(starter) for starter in strong_starters):
+            score += 3.0
+        
+        # Numbers and facts (indicates important information)
+        import re
+        numbers = re.findall(r'\d+', text)
+        if len(numbers) >= 2:
+            score += 2.0
+        elif len(numbers) == 1:
+            score += 1.0
+        
+        # Contrasts (creates interest)
+        contrast_words = ("но", "однако", "хотя", "впрочем", "но на самом деле", "but", "however", "although", "though", "actually", "in fact"):
+        contrast_count = sum(1 for word in contrast_words if word in text_lower)
+        score += min(contrast_count * 1.5, 3.0)
+        
+        # Personal stories (engaging)
+        personal_words = ("я", "мне", "меня", "мой", "моя", "i", "me", "my", "i'm", "i've", "i'll"):
+        personal_count = sum(1 for word in personal_words if word in text_lower)
+        if personal_count >= 3:
+            score += 2.0
+        elif personal_count >= 1:
+            score += 1.0
+        
+        return min(score, 10.0)
     
     def _log_selected_clips(
         self,
