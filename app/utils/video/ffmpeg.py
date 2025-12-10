@@ -254,7 +254,7 @@ def crop_9_16(
     )
     cmd.extend([
         "-vf",
-        f"crop=ih*9/16:ih,{scale_filter}",
+        f"crop=ih*9/16:ih:(iw-ih*9/16)/2:0,{scale_filter}",
         "-c:v",
         video_codec,
         "-preset",
@@ -336,9 +336,15 @@ def cut_crop_and_burn_optimized(
     """
     duration = end_time - start_time
     
+    # Smart crop to 9:16: 
+    # - If video is wider than 9:16, crop width and center horizontally
+    # - If video is narrower, crop height and center vertically
+    # Formula: crop=min(iw,ih*9/16):min(ih,iw*16/9):(iw-min(iw,ih*9/16))/2:(ih-min(ih,iw*16/9))/2
+    # Simplified: crop to 9:16 from center
     scale_filter = "scale=1080:1920"
     video_codec = _get_video_codec()
-    video_filter = f"crop=ih*9/16:ih,{scale_filter},subtitles={srt_path}"
+    # Crop from center: width=ih*9/16, height=ih, x=(iw-ih*9/16)/2, y=0
+    video_filter = f"crop=ih*9/16:ih:(iw-ih*9/16)/2:0,{scale_filter},subtitles={srt_path}"
     
     cmd = _build_ffmpeg_base_cmd(
         input_path=input_path,
