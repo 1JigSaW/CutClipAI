@@ -38,6 +38,21 @@ API_PID=$!
 echo $API_PID > logs/api.pid
 echo -e "${GREEN}   API server started (PID: $API_PID)${NC}"
 
+# Wait for API to be ready (with reload, it takes a bit longer)
+echo -e "${YELLOW}⏳ Waiting for API to be ready...${NC}"
+sleep 3  # Give reloader time to start the main process
+for i in {1..30}; do
+    if curl -s http://localhost:8000/health > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ API is ready${NC}"
+        break
+    fi
+    if [ $i -eq 30 ]; then
+        echo -e "${RED}❌ API failed to start after 30 seconds${NC}"
+        echo -e "${YELLOW}   Check logs: tail -f logs/api.log${NC}"
+    fi
+    sleep 1
+done
+
 # Start Celery worker
 echo -e "${GREEN}⚙️  Starting Celery worker...${NC}"
 celery -A app.core.celery_app worker --loglevel=info > logs/celery.log 2>&1 &
@@ -53,7 +68,7 @@ echo $BOT_PID > logs/bot.pid
 echo -e "${GREEN}   Telegram bot started (PID: $BOT_PID)${NC}"
 
 # Wait a bit for services to start
-sleep 2
+sleep 1
 
 # Show logs from all services
 echo ""
@@ -76,4 +91,3 @@ else
     # Fallback: use tail with colors
     tail -f logs/api.log logs/celery.log logs/bot.log
 fi
-
