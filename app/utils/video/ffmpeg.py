@@ -339,14 +339,20 @@ def cut_crop_and_burn_optimized(
     """
     duration = end_time - start_time
     
-    # Smart crop to 9:16: crop width if wider, scale with letterbox if narrower
-    # Use scale with force_original_aspect_ratio=decrease and pad to maintain quality
-    scale_filter = "scale=1080:1920"
     video_codec = _get_video_codec()
-    # Crop width to 9:16 from center (only if video is wider than 9:16)
-    # Formula: crop=min(iw, ih*9/16):ih:(iw-min(iw,ih*9/16))/2:0
-    # This ensures we don't crop more than available width
-    video_filter = f"crop=min(iw,ih*9/16):ih:(iw-min(iw,ih*9/16))/2:0,{scale_filter},subtitles={srt_path}"
+    
+    # Smart crop to 9:16 with proper aspect ratio preservation
+    # Step 1: Calculate target width for 9:16 (height is ih)
+    # Step 2: Crop width from center if video is wider than 9:16
+    # Step 3: Scale to 1080x1920 maintaining aspect ratio
+    # Step 4: Pad if needed to reach exact 1080x1920
+    # This prevents stretching by using scale with force_original_aspect_ratio=decrease and pad
+    video_filter = (
+        f"crop=min(iw,ih*9/16):ih:(iw-min(iw,ih*9/16))/2:0,"
+        f"scale=1080:1920:force_original_aspect_ratio=decrease,"
+        f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,"
+        f"subtitles={srt_path}"
+    )
     
     cmd = _build_ffmpeg_base_cmd(
         input_path=input_path,

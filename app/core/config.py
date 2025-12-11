@@ -39,7 +39,7 @@ class Settings(BaseSettings):
 
     VIDEO_MAX_DURATION_SECONDS: int = 1800
     CLIP_MIN_DURATION_SECONDS: int = 20
-    CLIP_MAX_DURATION_SECONDS: int = 60
+    CLIP_MAX_DURATION_SECONDS: int = 30
     MAX_CLIPS_COUNT: int = 3
     CLIP_PROCESSING_MAX_WORKERS: int = 3
     

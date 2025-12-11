@@ -156,8 +156,8 @@ class ScoringService:
                 if pause > max_pause:
                     should_stop = True
                 
-                # Stop if clip would exceed max duration
-                if current_clip_duration > self.max_duration:
+                # Stop if clip would exceed max duration (with 2s buffer to avoid cutting mid-sentence)
+                if current_clip_duration >= (self.max_duration - 2.0):
                     should_stop = True
                 
                 # Stop if previous segment ends with strong punctuation (end of sentence/thought)
@@ -165,12 +165,18 @@ class ScoringService:
                 if prev_text:
                     # Strong punctuation indicates end of thought
                     if prev_text.endswith((".", "!", "?", "…")):
-                        # If pause is significant (>1s), it's likely end of thought
-                        if pause > 1.0:
+                        # If pause is significant (>0.5s), it's likely end of thought
+                        if pause > 0.5:
                             should_stop = True
-                        # If we already have a good clip (>=30s), stop at sentence end
-                        elif current_clip_duration >= 30.0:
-                            should_stop = True
+                        # If we already have a good clip (>=min_duration), stop at sentence end
+                        # This prevents all clips from being exactly max_duration
+                        elif current_clip_duration >= self.min_duration:
+                            # Prefer shorter clips that end naturally
+                            if pause > 0.3:  # Even small pause after punctuation is good stopping point
+                                should_stop = True
+                            # If clip is getting long (>=25s), stop at any sentence end
+                            elif current_clip_duration >= 25.0:
+                                should_stop = True
                 
                 if should_stop:
                     break
