@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     
     # Gemini API for LLM analysis
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-1.5-flash"  # Options: gemini-1.5-flash (fast), gemini-1.5-pro (quality)
+    GEMINI_MODEL: str = "gemini-1.5-flash-latest"  # Options: gemini-1.5-flash-latest (fast), gemini-1.5-pro-latest (quality)
     USE_LLM_ANALYSIS: bool = False  # Enable/disable LLM analysis (costs money)
 
     class Config:
