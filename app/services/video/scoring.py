@@ -575,12 +575,12 @@ class ScoringService:
             score += 1.0
         
         # Contrasts (creates interest)
-        contrast_words = ("но", "однако", "хотя", "впрочем", "но на самом деле", "but", "however", "although", "though", "actually", "in fact"):
+        contrast_words = ("но", "однако", "хотя", "впрочем", "но на самом деле", "but", "however", "although", "though", "actually", "in fact")
         contrast_count = sum(1 for word in contrast_words if word in text_lower)
         score += min(contrast_count * 1.5, 3.0)
         
         # Personal stories (engaging)
-        personal_words = ("я", "мне", "меня", "мой", "моя", "i", "me", "my", "i'm", "i've", "i'll"):
+        personal_words = ("я", "мне", "меня", "мой", "моя", "i", "me", "my", "i'm", "i've", "i'll")
         personal_count = sum(1 for word in personal_words if word in text_lower)
         if personal_count >= 3:
             score += 2.0
