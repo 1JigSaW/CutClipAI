@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     SCORING_WEIGHT_SPEECH_PACE: float = 2.0
     SCORING_WEIGHT_STRUCTURE: float = 2.5  # Bonus for video structure (beginning/end)
     SCORING_WEIGHT_HOOK: float = 3.0  # Bonus for hook patterns (questions, statements)
+    SCORING_WEIGHT_LLM: float = 5.0  # Bonus from LLM analysis (if enabled)
 
     START_BALANCE_COINS: int = 5
     COINS_PER_CLIP: int = 1
@@ -61,6 +62,10 @@ class Settings(BaseSettings):
     S3_ENDPOINT_URL: Optional[str] = None
 
     GOOGLE_DRIVE_API_KEY: Optional[str] = None
+    
+    # Gemini API for LLM analysis
+    GEMINI_API_KEY: Optional[str] = None
+    USE_LLM_ANALYSIS: bool = False  # Enable/disable LLM analysis (costs money)
 
     class Config:
         env_file = ".env"

@@ -1,8 +1,9 @@
 import re
-from typing import Any
+from typing import Any, Optional
 
 from app.core.config import settings
 from app.core.logger import get_logger
+from app.services.video.llm_analysis import LLMAnalysisService
 
 logger = get_logger(__name__)
 
@@ -13,10 +14,12 @@ class ScoringService:
         min_duration: int = settings.CLIP_MIN_DURATION_SECONDS,
         max_duration: int = settings.CLIP_MAX_DURATION_SECONDS,
         max_clips: int = settings.MAX_CLIPS_COUNT,
+        llm_service: Optional[LLMAnalysisService] = None,
     ):
         self.min_duration = min_duration
         self.max_duration = max_duration
         self.max_clips = max_clips
+        self.llm_service = llm_service or LLMAnalysisService()
 
     def select_best_moments(
         self,
@@ -37,7 +40,8 @@ class ScoringService:
 
         logger.info(
             f"Selecting best moments from {len(segments)} segments | "
-            f"min_duration={self.min_duration}s | max_duration={self.max_duration}s",
+            f"min_duration={self.min_duration}s | max_duration={self.max_duration}s | "
+            f"llm_enabled={self.llm_service.enabled}",
         )
 
         if len(segments) == 0:
@@ -45,14 +49,34 @@ class ScoringService:
 
         segment_durations = [seg["end"] - seg["start"] for seg in segments]
         avg_duration = sum(segment_durations) / len(segment_durations) if segment_durations else 0
+        total_duration = segments[-1]["end"] if segments else 0
+        
         logger.info(
             f"Segment statistics | count={len(segments)} | "
             f"avg_duration={avg_duration:.2f}s | "
             f"min_duration={min(segment_durations):.2f}s | "
-            f"max_duration={max(segment_durations):.2f}s",
+            f"max_duration={max(segment_durations):.2f}s | "
+            f"total_duration={total_duration:.1f}s",
         )
 
-        continuous_clips = self._find_continuous_speech_moments(segments=segments)
+        # Get LLM analysis if enabled
+        llm_analysis = None
+        if self.llm_service.enabled:
+            llm_analysis = self.llm_service.analyze_transcription(
+                segments=segments,
+                total_duration=total_duration,
+            )
+            if llm_analysis:
+                logger.info(
+                    f"LLM analysis received | "
+                    f"best_moments={len(llm_analysis.get('best_moments', []))}",
+                )
+
+        continuous_clips = self._find_continuous_speech_moments(
+            segments=segments,
+            total_duration=total_duration,
+            llm_analysis=llm_analysis,
+        )
         
         logger.info(f"Found {len(continuous_clips)} continuous speech moments")
 
@@ -78,6 +102,8 @@ class ScoringService:
     def _find_continuous_speech_moments(
         self,
         segments: list[dict[str, Any]],
+        total_duration: float = 0.0,
+        llm_analysis: Optional[dict[str, Any]] = None,
     ) -> list[dict[str, Any]]:
         """
         Find continuous speech moments (without big pauses).
@@ -137,6 +163,7 @@ class ScoringService:
                 clip_score = self._calculate_score(
                     segment=combined_segment,
                     total_duration=total_duration,
+                    llm_analysis=llm_analysis,
                 )
                 
                 clips.append({
@@ -154,6 +181,7 @@ class ScoringService:
         self,
         segment: dict[str, Any],
         total_duration: float = 0.0,
+        llm_analysis: Optional[dict[str, Any]] = None,
     ) -> float:
         """
         Calculate score based on speech dynamics and emotion indicators.
@@ -218,12 +246,21 @@ class ScoringService:
         hook_score = self._score_hook_patterns(text=text)
         score += hook_score * settings.SCORING_WEIGHT_HOOK
         
+        # LLM analysis bonus (if enabled)
+        llm_score = 0.0
+        if llm_analysis and self.llm_service.enabled:
+            llm_score = self.llm_service.score_segment_with_llm(
+                segment=segment,
+                llm_analysis=llm_analysis,
+            )
+            score += llm_score * settings.SCORING_WEIGHT_LLM
+        
         logger.debug(
             f"Segment score breakdown | "
             f"energy={energy_score:.2f} | tempo={tempo_score:.2f} | "
             f"pauses={pause_score:.2f} | punctuation={punctuation_score:.2f} | "
             f"pace={pace_score:.2f} | structure={structure_score:.2f} | "
-            f"hook={hook_score:.2f} | total={score:.2f}",
+            f"hook={hook_score:.2f} | llm={llm_score:.2f} | total={score:.2f}",
         )
         
         return score
@@ -525,7 +562,7 @@ class ScoringService:
             score += min(question_count * 1.5, 3.0)
         
         # Strong statements/claims
-        strong_starters = ("вот", "это", "так вот", "дело в том", "here's", "this is", "the thing is", "here's the thing"):
+        strong_starters = ("вот", "это", "так вот", "дело в том", "here's", "this is", "the thing is", "here's the thing")
         if any(first_words.startswith(starter) for starter in strong_starters):
             score += 3.0
         
