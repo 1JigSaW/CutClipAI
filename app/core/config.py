@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     USE_GPU_ENCODING: bool = True
     FFMPEG_PRESET: str = "p1"
     FFMPEG_QUALITY: int = 23
-    S3_MAX_CONCURRENCY: int = 3
+    S3_MAX_CONCURRENCY: int = 5
 
     VIDEO_MAX_DURATION_SECONDS: int = 1800
     CLIP_MIN_DURATION_SECONDS: int = 20
