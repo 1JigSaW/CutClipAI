@@ -149,11 +149,11 @@ async def process_video_file(
             )
 
             try:
-            response = await client.post(
-                url=f"{settings.API_BASE_URL}/video/process",
-                data={"user_id": user_id},
-                files={"file": (file_name, video_file, "video/mp4")},
-            )
+                response = await client.post(
+                    url=f"{settings.API_BASE_URL}/video/process",
+                    data={"user_id": user_id},
+                    files={"file": (file_name, video_file, "video/mp4")},
+                )
             except httpx.ConnectError as e:
                 logger.error(
                     f"Failed to connect to API | user_id={user_id} | "
@@ -285,36 +285,36 @@ async def process_video_file(
                 idx: int,
                 clip_s3_key: str,
             ) -> str:
-                    logger.debug(
-                        f"Downloading clip {idx}/{clips_count} | user_id={user_id} | "
-                        f"s3_key={clip_s3_key}",
-                    )
+                logger.debug(
+                    f"Downloading clip {idx}/{clips_count} | user_id={user_id} | "
+                    f"s3_key={clip_s3_key}",
+                )
 
-                    clip_extension = Path(clip_s3_key).suffix
-                    temp_fd, temp_clip_path = tempfile.mkstemp(
-                        suffix=clip_extension,
-                        dir=settings.TEMP_DIR,
-                    )
-                    os.close(temp_fd)
+                clip_extension = Path(clip_s3_key).suffix
+                temp_fd, temp_clip_path = tempfile.mkstemp(
+                    suffix=clip_extension,
+                    dir=settings.TEMP_DIR,
+                )
+                os.close(temp_fd)
 
-                    s3_service.download_file(
-                        s3_key=clip_s3_key,
-                        local_path=temp_clip_path,
-                    )
+                s3_service.download_file(
+                    s3_key=clip_s3_key,
+                    local_path=temp_clip_path,
+                )
 
-                    logger.debug(
-                        f"Sending clip {idx}/{clips_count} to user | user_id={user_id} | "
-                        f"path={temp_clip_path}",
-                    )
+                logger.debug(
+                    f"Sending clip {idx}/{clips_count} to user | user_id={user_id} | "
+                    f"path={temp_clip_path}",
+                )
 
-                    video_input = FSInputFile(path=temp_clip_path)
-                    await message.answer_video(
-                        video=video_input,
-                    )
+                video_input = FSInputFile(path=temp_clip_path)
+                await message.answer_video(
+                    video=video_input,
+                )
 
-                    logger.debug(
-                        f"Sent clip {idx}/{clips_count} to user | user_id={user_id}",
-                    )
+                logger.debug(
+                    f"Sent clip {idx}/{clips_count} to user | user_id={user_id}",
+                )
 
                 return temp_clip_path
 
