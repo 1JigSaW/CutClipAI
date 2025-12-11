@@ -63,10 +63,10 @@ class Settings(BaseSettings):
 
     GOOGLE_DRIVE_API_KEY: Optional[str] = None
     
-    # Gemini API for LLM analysis
-    GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-3-pro-preview"  # Options: gemini-1.5-flash (fast), gemini-1.5-pro (quality), gemini-3-pro-preview (latest)
-    USE_LLM_ANALYSIS: bool = False  # Enable/disable LLM analysis (costs money)
+    # OpenAI API for LLM analysis
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL: str = "gpt-4o-mini"  # Options: gpt-4o-mini (fast/cheap), gpt-4o (quality), gpt-4-turbo (balanced)
+    USE_LLM_ANALYSIS: bool = False
 
     class Config:
         env_file = ".env"

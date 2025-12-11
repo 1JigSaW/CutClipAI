@@ -1,11 +1,11 @@
 """
 LLM analysis service for video transcription.
-Uses Gemini Pro API to analyze video content and find best moments.
+Uses OpenAI API to analyze video content and find best moments.
 """
 
 from typing import Any, Optional
 
-from google import genai
+from openai import OpenAI
 
 from app.core.config import settings
 from app.core.logger import get_logger
@@ -15,22 +15,22 @@ logger = get_logger(__name__)
 
 class LLMAnalysisService:
     """
-    Service for analyzing video transcriptions using LLM (Gemini Pro).
+    Service for analyzing video transcriptions using LLM (OpenAI).
     """
     
     def __init__(self):
-        self.api_key = settings.GEMINI_API_KEY
+        self.api_key = settings.OPENAI_API_KEY
         self.enabled = settings.USE_LLM_ANALYSIS and self.api_key is not None
         
         if self.enabled:
-            self.client = genai.Client(api_key=self.api_key)
-            self.model_name = getattr(settings, 'GEMINI_MODEL', 'gemini-1.5-flash')
-            logger.info(f"LLM analysis enabled | provider=Gemini | model={self.model_name}")
+            self.client = OpenAI(api_key=self.api_key)
+            self.model_name = getattr(settings, 'OPENAI_MODEL', 'gpt-4o-mini')
+            logger.info(f"LLM analysis enabled | provider=OpenAI | model={self.model_name}")
         else:
             self.client = None
             self.model_name = None
             if settings.USE_LLM_ANALYSIS and not self.api_key:
-                logger.warning("LLM analysis requested but GEMINI_API_KEY not set")
+                logger.warning("LLM analysis requested but OPENAI_API_KEY not set")
             else:
                 logger.debug("LLM analysis disabled")
     
@@ -71,16 +71,22 @@ class LLMAnalysisService:
                 f"transcription_length={len(transcription_text)} chars",
             )
             
-            # Call Gemini API using new client API
-            response = self.client.models.generate_content(
+            # Call OpenAI API
+            response = self.client.chat.completions.create(
                 model=self.model_name,
-                contents=prompt,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    },
+                ],
+                temperature=0.3,
             )
             llm_api_time = time.time() - llm_start
             
             # Parse response
             parse_start = time.time()
-            response_text = response.text if hasattr(response, 'text') else str(response)
+            response_text = response.choices[0].message.content if response.choices else ""
             analysis = self._parse_llm_response(response_text)
             parse_time = time.time() - parse_start
             
