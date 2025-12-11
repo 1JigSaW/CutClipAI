@@ -77,6 +77,7 @@ async def process_video(
         f"balance={balance} | required_cost={required_cost}",
     )
 
+    task = None
     try:
         with temp_file_context(
             suffix=suffix,
@@ -93,30 +94,30 @@ async def process_video(
                     f.write(chunk)
                     file_size += len(chunk)
 
-        logger.info(
-            f"Video file saved to temp | user_id={user_id} | "
-            f"size={file_size} bytes | path={temp_path}",
-        )
+            logger.info(
+                f"Video file saved to temp | user_id={user_id} | "
+                f"size={file_size} bytes | path={temp_path}",
+            )
 
-        s3_service = S3Service()
-        s3_key = s3_service.upload_file(
-            file_path=temp_path,
-            prefix=f"videos/input/{user_id}",
-        )
+            s3_service = S3Service()
+            s3_key = s3_service.upload_file(
+                file_path=temp_path,
+                prefix=f"videos/input/{user_id}",
+            )
 
-        logger.info(
-            f"Video uploaded to S3 | user_id={user_id} | s3_key={s3_key}",
-        )
+            logger.info(
+                f"Video uploaded to S3 | user_id={user_id} | s3_key={s3_key}",
+            )
 
-        task = process_video_task.delay(
-            s3_key=s3_key,
-            user_id=user_id,
-        )
+            task = process_video_task.delay(
+                s3_key=s3_key,
+                user_id=user_id,
+            )
 
-        logger.info(
-            f"Video processing task created | user_id={user_id} | "
-            f"task_id={task.id} | s3_key={s3_key}",
-        )
+            logger.info(
+                f"Video processing task created | user_id={user_id} | "
+                f"task_id={task.id} | s3_key={s3_key}",
+            )
 
     except Exception as e:
         log_error(
