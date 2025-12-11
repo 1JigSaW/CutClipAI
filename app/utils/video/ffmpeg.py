@@ -342,15 +342,15 @@ def cut_crop_and_burn_optimized(
     video_codec = _get_video_codec()
     
     # Smart crop to 9:16 with proper aspect ratio preservation
-    # Step 1: Calculate target width for 9:16 (height is ih)
-    # Step 2: Crop width from center if video is wider than 9:16
-    # Step 3: Scale to 1080x1920 maintaining aspect ratio
-    # Step 4: Pad if needed to reach exact 1080x1920
+    # Step 1: Crop width from center if video is wider than 9:16
+    # Step 2: Scale to 1080x1920 maintaining aspect ratio (will be smaller if needed)
+    # Step 3: Pad to exact 1080x1920 with black bars if needed
     # This prevents stretching by using scale with force_original_aspect_ratio=decrease and pad
+    # Note: pad syntax is pad=width:height:x:y:color where x and y are calculated positions
     video_filter = (
         f"crop=min(iw,ih*9/16):ih:(iw-min(iw,ih*9/16))/2:0,"
         f"scale=1080:1920:force_original_aspect_ratio=decrease,"
-        f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,"
+        f"pad=1080:1920:(1080-iw)/2:(1920-ih)/2:black,"
         f"subtitles={srt_path}"
     )
     
