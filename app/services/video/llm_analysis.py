@@ -5,7 +5,7 @@ Uses Gemini Pro API to analyze video content and find best moments.
 
 from typing import Any, Optional
 
-import google.generativeai as genai
+from google import genai
 
 from app.core.config import settings
 from app.core.logger import get_logger
@@ -23,12 +23,12 @@ class LLMAnalysisService:
         self.enabled = settings.USE_LLM_ANALYSIS and self.api_key is not None
         
         if self.enabled:
-            genai.configure(api_key=self.api_key)
-            model_name = getattr(settings, 'GEMINI_MODEL', 'gemini-1.5-flash')
-            self.model = genai.GenerativeModel(model_name)
-            logger.info(f"LLM analysis enabled | provider=Gemini | model={model_name}")
+            self.client = genai.Client(api_key=self.api_key)
+            self.model_name = getattr(settings, 'GEMINI_MODEL', 'gemini-1.5-flash')
+            logger.info(f"LLM analysis enabled | provider=Gemini | model={self.model_name}")
         else:
-            self.model = None
+            self.client = None
+            self.model_name = None
             if settings.USE_LLM_ANALYSIS and not self.api_key:
                 logger.warning("LLM analysis requested but GEMINI_API_KEY not set")
             else:
@@ -71,13 +71,17 @@ class LLMAnalysisService:
                 f"transcription_length={len(transcription_text)} chars",
             )
             
-            # Call Gemini API
-            response = self.model.generate_content(prompt)
+            # Call Gemini API using new client API
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+            )
             llm_api_time = time.time() - llm_start
             
             # Parse response
             parse_start = time.time()
-            analysis = self._parse_llm_response(response.text)
+            response_text = response.text if hasattr(response, 'text') else str(response)
+            analysis = self._parse_llm_response(response_text)
             parse_time = time.time() - parse_start
             
             total_llm_time = time.time() - llm_start

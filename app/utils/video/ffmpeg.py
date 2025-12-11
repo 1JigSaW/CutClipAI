@@ -347,12 +347,13 @@ def cut_crop_and_burn_optimized(
     # Step 3: Pad to exact 1080x1920 with black bars centered
     # This prevents stretching by using scale with force_original_aspect_ratio=decrease and pad
     # pad syntax: pad=width:height:x:y:color
-    # For centering, use -1 for x and y to auto-center
-    # If -1 doesn't work, use explicit calculations: (ow-iw)/2 and (oh-ih)/2
+    # For centering: use eval filter to calculate positions, or use simpler approach
+    # Using scale with force_original_aspect_ratio=decrease then pad with -1 for auto-center
+    # If -1 doesn't work, we'll use explicit calculations
     video_filter = (
         f"crop=min(iw,ih*9/16):ih:(iw-min(iw,ih*9/16))/2:0,"
         f"scale=1080:1920:force_original_aspect_ratio=decrease,"
-        f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,"
+        f"pad=1080:1920:-1:-1:black,"
         f"subtitles={srt_path}"
     )
     
