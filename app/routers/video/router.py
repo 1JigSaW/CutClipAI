@@ -82,16 +82,16 @@ async def process_video(
             suffix=suffix,
             prefix="upload_",
         ) as temp_path:
-        file_size = 0
+            file_size = 0
             chunk_size = 1024 * 64
             
             with open(temp_path, "wb") as f:
-            while True:
+                while True:
                     chunk = await file.read(chunk_size)
-                if not chunk:
-                    break
-                f.write(chunk)
-                file_size += len(chunk)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    file_size += len(chunk)
 
         logger.info(
             f"Video file saved to temp | user_id={user_id} | "
