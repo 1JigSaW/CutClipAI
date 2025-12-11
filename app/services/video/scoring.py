@@ -62,15 +62,21 @@ class ScoringService:
         # Get LLM analysis if enabled
         llm_analysis = None
         if self.llm_service.enabled:
+            import time
+            llm_start = time.time()
             llm_analysis = self.llm_service.analyze_transcription(
                 segments=segments,
                 total_duration=total_duration,
             )
+            llm_time = time.time() - llm_start
             if llm_analysis:
                 logger.info(
                     f"LLM analysis received | "
-                    f"best_moments={len(llm_analysis.get('best_moments', []))}",
+                    f"best_moments={len(llm_analysis.get('best_moments', []))} | "
+                    f"time={llm_time:.1f}s",
                 )
+            else:
+                logger.warning(f"LLM analysis failed or returned None | time={llm_time:.1f}s")
 
         continuous_clips = self._find_continuous_speech_moments(
             segments=segments,
@@ -106,10 +112,13 @@ class ScoringService:
         llm_analysis: Optional[dict[str, Any]] = None,
     ) -> list[dict[str, Any]]:
         """
-        Find continuous speech moments (without big pauses).
+        Find continuous speech moments that represent complete thoughts.
+        Stops at natural boundaries: punctuation, pauses, or topic changes.
 
         Args:
             segments: List of transcription segments
+            total_duration: Total video duration
+            llm_analysis: Optional LLM analysis result
 
         Returns:
             List of continuous moments with start, end, score
@@ -119,10 +128,11 @@ class ScoringService:
 
         clips = []
         i = 0
-        max_pause = 3.0
+        max_pause = 2.0  # Reduced pause threshold for better thought boundaries
         
         # Get total video duration for structure scoring
-        total_duration = segments[-1]["end"] if segments else 0
+        if total_duration <= 0:
+            total_duration = segments[-1]["end"] if segments else 0
 
         while i < len(segments):
             clip_start = segments[i]["start"]
@@ -130,17 +140,43 @@ class ScoringService:
             j = i + 1
 
             while j < len(segments):
-                prev_end = segments[j - 1]["end"]
-                current_start = segments[j]["start"]
+                prev_seg = segments[j - 1]
+                current_seg = segments[j]
+                
+                prev_end = prev_seg["end"]
+                current_start = current_seg["start"]
                 pause = current_start - prev_end
 
-                current_clip_duration = segments[j]["end"] - clip_start
+                current_clip_duration = current_seg["end"] - clip_start
 
-                if pause <= max_pause and current_clip_duration <= self.max_duration:
-                    clip_segments.append(segments[j])
-                    j += 1
-                else:
+                # Check if we should stop (end of thought)
+                should_stop = False
+                
+                # Stop if pause is too long (end of thought)
+                if pause > max_pause:
+                    should_stop = True
+                
+                # Stop if clip would exceed max duration
+                if current_clip_duration > self.max_duration:
+                    should_stop = True
+                
+                # Stop if previous segment ends with strong punctuation (end of sentence/thought)
+                prev_text = prev_seg.get("text", "").strip()
+                if prev_text:
+                    # Strong punctuation indicates end of thought
+                    if prev_text.endswith((".", "!", "?", "…")):
+                        # If pause is significant (>1s), it's likely end of thought
+                        if pause > 1.0:
+                            should_stop = True
+                        # If we already have a good clip (>=30s), stop at sentence end
+                        elif current_clip_duration >= 30.0:
+                            should_stop = True
+                
+                if should_stop:
                     break
+                
+                clip_segments.append(current_seg)
+                j += 1
 
             clip_end = clip_segments[-1]["end"]
             clip_duration = clip_end - clip_start

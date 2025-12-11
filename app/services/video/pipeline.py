@@ -126,7 +126,7 @@ class VideoPipeline:
             file_path=file_path,
         )
         trim_time = time.time() - trim_start
-        
+
         logger.info(
             f"Video trimmed | trimmed_path={trimmed_path} | time={trim_time:.1f}s",
         )
@@ -135,7 +135,7 @@ class VideoPipeline:
         logger.info(
             f"Starting Whisper transcription | video_path={trimmed_path}",
         )
-        
+
         transcription_result = self.whisper_service.transcribe_full(
             video_path=trimmed_path,
             use_cache=True,
@@ -143,7 +143,7 @@ class VideoPipeline:
         
         transcription_time = time.time() - transcription_start
         segments_count = len(transcription_result.get("segments", []))
-        
+
         logger.info(
             f"Full transcription completed | "
             f"segments_count={segments_count} | time={transcription_time:.1f}s | "
@@ -249,11 +249,12 @@ class VideoPipeline:
         clip_paths = [clip_paths_dict[i] for i in sorted(clip_paths_dict.keys())]
 
         total_time = time.time() - trim_start
-        
+
         logger.info(
             f"Optimized pipeline completed | clips_count={len(clip_paths)} | "
-            f"total_time={total_time:.1f}s | breakdown: trim={trim_time:.1f}s, "
-            f"transcribe={transcription_time:.1f}s, score={scoring_time:.1f}s, "
+            f"total_time={total_time:.1f}s ({total_time/60:.1f}min) | "
+            f"breakdown: trim={trim_time:.1f}s, transcribe={transcription_time:.1f}s "
+            f"({transcription_time/60:.1f}min), score={scoring_time:.1f}s, "
             f"clips={clips_time:.1f}s",
         )
 

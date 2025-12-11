@@ -82,41 +82,41 @@ async def process_video(
             suffix=suffix,
             prefix="upload_",
         ) as temp_path:
-            file_size = 0
+        file_size = 0
             chunk_size = 1024 * 64
             
             with open(temp_path, "wb") as f:
-                while True:
+            while True:
                     chunk = await file.read(chunk_size)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    file_size += len(chunk)
+                if not chunk:
+                    break
+                f.write(chunk)
+                file_size += len(chunk)
 
-            logger.info(
-                f"Video file saved to temp | user_id={user_id} | "
-                f"size={file_size} bytes | path={temp_path}",
-            )
+        logger.info(
+            f"Video file saved to temp | user_id={user_id} | "
+            f"size={file_size} bytes | path={temp_path}",
+        )
 
-            s3_service = S3Service()
-            s3_key = s3_service.upload_file(
-                file_path=temp_path,
-                prefix=f"videos/input/{user_id}",
-            )
+        s3_service = S3Service()
+        s3_key = s3_service.upload_file(
+            file_path=temp_path,
+            prefix=f"videos/input/{user_id}",
+        )
 
-            logger.info(
-                f"Video uploaded to S3 | user_id={user_id} | s3_key={s3_key}",
-            )
+        logger.info(
+            f"Video uploaded to S3 | user_id={user_id} | s3_key={s3_key}",
+        )
 
-            task = process_video_task.delay(
-                s3_key=s3_key,
-                user_id=user_id,
-            )
+        task = process_video_task.delay(
+            s3_key=s3_key,
+            user_id=user_id,
+        )
 
-            logger.info(
-                f"Video processing task created | user_id={user_id} | "
-                f"task_id={task.id} | s3_key={s3_key}",
-            )
+        logger.info(
+            f"Video processing task created | user_id={user_id} | "
+            f"task_id={task.id} | s3_key={s3_key}",
+        )
 
     except Exception as e:
         log_error(

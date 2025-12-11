@@ -85,7 +85,7 @@ def delete_temp_files(
         if path.exists():
             try:
                 if path.is_file():
-                    path.unlink()
+            path.unlink()
                 elif path.is_dir():
                     import shutil
                     shutil.rmtree(path)

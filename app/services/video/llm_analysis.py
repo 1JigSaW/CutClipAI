@@ -24,8 +24,9 @@ class LLMAnalysisService:
         
         if self.enabled:
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
-            logger.info("LLM analysis enabled | provider=Gemini Pro")
+            model_name = getattr(settings, 'GEMINI_MODEL', 'gemini-1.5-flash')
+            self.model = genai.GenerativeModel(model_name)
+            logger.info(f"LLM analysis enabled | provider=Gemini | model={model_name}")
         else:
             self.model = None
             if settings.USE_LLM_ANALYSIS and not self.api_key:
@@ -61,20 +62,31 @@ class LLMAnalysisService:
                 total_duration=total_duration,
             )
             
-            logger.debug(
+            import time
+            llm_start = time.time()
+            
+            logger.info(
                 f"Analyzing transcription with LLM | "
-                f"segments={len(segments)} | duration={total_duration:.1f}s",
+                f"segments={len(segments)} | duration={total_duration:.1f}s | "
+                f"transcription_length={len(transcription_text)} chars",
             )
             
             # Call Gemini API
             response = self.model.generate_content(prompt)
+            llm_api_time = time.time() - llm_start
             
             # Parse response
+            parse_start = time.time()
             analysis = self._parse_llm_response(response.text)
+            parse_time = time.time() - parse_start
+            
+            total_llm_time = time.time() - llm_start
             
             logger.info(
                 f"LLM analysis completed | "
-                f"best_moments={len(analysis.get('best_moments', []))}",
+                f"best_moments={len(analysis.get('best_moments', []))} | "
+                f"api_time={llm_api_time:.1f}s | parse_time={parse_time:.2f}s | "
+                f"total_time={total_llm_time:.1f}s",
             )
             
             return analysis

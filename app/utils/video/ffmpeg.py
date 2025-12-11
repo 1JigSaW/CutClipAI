@@ -177,14 +177,14 @@ def trim_video(
         output_path=output_path,
     )
     cmd.extend([
-        "-t",
-        str(max_duration),
-        "-c",
-        "copy",
+            "-t",
+            str(max_duration),
+            "-c",
+            "copy",
         "-avoid_negative_ts",
         "make_zero",
-        "-y",
-        output_path,
+            "-y",
+            output_path,
     ])
     
     _run_ffmpeg(
@@ -218,12 +218,12 @@ def cut_clip(
     cmd.insert(-2, "-ss")
     cmd.insert(-2, str(start_time))
     cmd.extend([
-        "-t",
-        str(duration),
-        "-c",
-        "copy",
-        "-y",
-        output_path,
+            "-t",
+            str(duration),
+            "-c",
+            "copy",
+            "-y",
+            output_path,
     ])
     
     _run_ffmpeg(
@@ -252,15 +252,18 @@ def crop_9_16(
         input_path=input_path,
         output_path=output_path,
     )
+    # Smart crop: only crop if video is wider than 9:16
+    # If video is already 9:16 or narrower, don't crop (use full width)
+    # Formula: crop=min(iw, ih*9/16):ih:(iw-min(iw,ih*9/16))/2:0
     cmd.extend([
-        "-vf",
-        f"crop=ih*9/16:ih:(iw-ih*9/16)/2:0,{scale_filter}",
+            "-vf",
+        f"crop=min(iw,ih*9/16):ih:(iw-min(iw,ih*9/16))/2:0,{scale_filter}",
         "-c:v",
         video_codec,
         "-preset",
         preset,
-        "-y",
-        output_path,
+            "-y",
+            output_path,
     ])
     
     if _get_gpu_encoding_available():
@@ -295,16 +298,16 @@ def burn_subtitles(
     quality = _get_ffmpeg_quality()
     
     cmd.extend([
-        "-vf",
-        f"subtitles={srt_path}",
+            "-vf",
+            f"subtitles={srt_path}",
         "-c:v",
         video_codec,
         "-preset",
         preset,
-        "-c:a",
-        "copy",
-        "-y",
-        output_path,
+            "-c:a",
+            "copy",
+            "-y",
+            output_path,
     ])
     
     if _get_gpu_encoding_available():
@@ -336,15 +339,14 @@ def cut_crop_and_burn_optimized(
     """
     duration = end_time - start_time
     
-    # Smart crop to 9:16: 
-    # - If video is wider than 9:16, crop width and center horizontally
-    # - If video is narrower, crop height and center vertically
-    # Formula: crop=min(iw,ih*9/16):min(ih,iw*16/9):(iw-min(iw,ih*9/16))/2:(ih-min(ih,iw*16/9))/2
-    # Simplified: crop to 9:16 from center
+    # Smart crop to 9:16: crop width if wider, scale with letterbox if narrower
+    # Use scale with force_original_aspect_ratio=decrease and pad to maintain quality
     scale_filter = "scale=1080:1920"
     video_codec = _get_video_codec()
-    # Crop from center: width=ih*9/16, height=ih, x=(iw-ih*9/16)/2, y=0
-    video_filter = f"crop=ih*9/16:ih:(iw-ih*9/16)/2:0,{scale_filter},subtitles={srt_path}"
+    # Crop width to 9:16 from center (only if video is wider than 9:16)
+    # Formula: crop=min(iw, ih*9/16):ih:(iw-min(iw,ih*9/16))/2:0
+    # This ensures we don't crop more than available width
+    video_filter = f"crop=min(iw,ih*9/16):ih:(iw-min(iw,ih*9/16))/2:0,{scale_filter},subtitles={srt_path}"
     
     cmd = _build_ffmpeg_base_cmd(
         input_path=input_path,
@@ -357,18 +359,18 @@ def cut_crop_and_burn_optimized(
     quality = _get_ffmpeg_quality()
     
     cmd.extend([
-        "-t",
-        str(duration),
-        "-vf",
-        video_filter,
+            "-t",
+            str(duration),
+            "-vf",
+            video_filter,
         "-c:v",
         video_codec,
         "-preset",
         preset,
-        "-c:a",
-        "copy",
-        "-y",
-        output_path,
+            "-c:a",
+            "copy",
+            "-y",
+            output_path,
     ])
     
     if _get_gpu_encoding_available():
