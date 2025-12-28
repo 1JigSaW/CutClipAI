@@ -53,10 +53,13 @@ async def poll_task_status(
     Returns:
         Task result dictionary or None
     """
+    headers = {"X-API-Key": settings.API_SECRET_KEY}
+    
     for attempt in range(max_attempts):
         try:
             response = await client.get(
                 url=f"{settings.API_BASE_URL}/video/status/{task_id}",
+                headers=headers,
             )
 
             if response.status_code != 200:
@@ -141,6 +144,8 @@ async def process_video_file(
     async with httpx.AsyncClient(
         timeout=600.0,
     ) as client:
+        headers = {"X-API-Key": settings.API_SECRET_KEY}
+        
         try:
             logger.debug(
                 f"Checking API health | api_url={settings.API_BASE_URL}/health",
@@ -189,6 +194,7 @@ async def process_video_file(
                             "video/mp4",
                         ),
                     },
+                    headers=headers,
                 )
             except httpx.ConnectError as e:
                 logger.error(
@@ -554,6 +560,17 @@ async def handle_text_message(
         await message.answer(
             text=DOWNLOADING_MESSAGE,
         )
+
+        # Check file size before downloading
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            head_response = await client.head(download_url, follow_redirects=True)
+            if head_response.status_code == 200:
+                file_size = int(head_response.headers.get("Content-Length", 0))
+                max_size = 4 * 1024 * 1024 * 1024 # 4GB
+                if file_size > max_size:
+                    logger.warning(f"Google Drive file too large | size={file_size}")
+                    await message.answer("❌ This file is too large (max 4GB). Please upload a smaller video.")
+                    return
 
         local_path = f"/tmp/{user_id}_{os.urandom(8).hex()}.mp4"
 

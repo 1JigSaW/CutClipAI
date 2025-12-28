@@ -1,7 +1,7 @@
 import os
 import tempfile
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, UploadFile, Header
 from pydantic import BaseModel
 
 from celery.result import AsyncResult
@@ -9,13 +9,16 @@ from celery.result import AsyncResult
 from fastapi import HTTPException
 
 from app.core.celery_app import celery_app
+from app.core.config import settings
 from app.core.logger import get_logger, log_error
+from app.services.billing.wallet import WalletService
 from app.services.storage.s3 import S3Service
 from app.utils.billing.validators import check_balance_for_video_processing
 from app.utils.video.files import temp_file_context
 from app.workers.video.worker import process_video_task
 
 logger = get_logger(__name__)
+wallet_service = WalletService()
 
 router = APIRouter(
     prefix="/video",
@@ -23,14 +26,18 @@ router = APIRouter(
 )
 
 
-class ProcessVideoResponse(BaseModel):
-    task_id: str
-
-
-class VideoStatusResponse(BaseModel):
-    task_id: str
-    status: str
-    result: dict | None = None
+def verify_api_key(
+    x_api_key: str = Header(None),
+):
+    """
+    Verify API secret key.
+    """
+    if x_api_key != settings.API_SECRET_KEY:
+        logger.warning(f"Invalid API key provided: {x_api_key}")
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid API key",
+        )
 
 
 @router.post(
@@ -40,17 +47,13 @@ class VideoStatusResponse(BaseModel):
 async def process_video(
     user_id: int = Form(...),
     file: UploadFile = File(...),
+    x_api_key: str = Header(None),
 ):
     """
     Upload video and start processing task.
-
-    Args:
-        user_id: Telegram user ID
-        file: Video file to process
-
-    Returns:
-        Task ID for status checking
     """
+    verify_api_key(x_api_key=x_api_key)
+    
     if not file:
         logger.error(f"Received request without file | user_id={user_id}")
         raise HTTPException(status_code=400, detail="File is required")
@@ -67,6 +70,24 @@ async def process_video(
         raise HTTPException(
             status_code=402,
             detail=f"Insufficient balance. Required: {required_cost} coins, have: {balance} coins",
+        )
+
+    # Pre-charge maximum coins to prevent race conditions
+    logger.info(
+        f"Pre-charging user | user_id={user_id} | amount={required_cost}",
+    )
+    success = wallet_service.charge_coins(
+        user_id=user_id,
+        amount=required_cost,
+    )
+    
+    if not success:
+        logger.error(
+            f"Failed to pre-charge user even after balance check | user_id={user_id}",
+        )
+        raise HTTPException(
+            status_code=402,
+            detail="Failed to reserve coins",
         )
 
     file_name = file.filename or "video.mp4"
@@ -141,16 +162,13 @@ async def process_video(
 )
 async def get_video_status(
     task_id: str,
+    x_api_key: str = Header(None),
 ):
     """
     Get video processing task status.
-
-    Args:
-        task_id: Celery task ID
-
-    Returns:
-        Task status and result if ready
     """
+    verify_api_key(x_api_key=x_api_key)
+    
     logger.debug(f"Checking task status | task_id={task_id}")
 
     task = AsyncResult(id=task_id, app=celery_app)

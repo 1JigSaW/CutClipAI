@@ -153,12 +153,15 @@ async def handle_successful_payment(
         )
 
         async with httpx.AsyncClient() as client:
+            headers = {"X-API-Key": settings.API_SECRET_KEY}
+            
             response = await client.post(
                 url=f"{settings.API_BASE_URL}/billing/buy",
                 json={
                     "user_id": user_id,
                     "amount": amount,
                 },
+                headers=headers,
             )
 
             if response.status_code == 200:

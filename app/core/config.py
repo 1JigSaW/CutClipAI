@@ -63,6 +63,8 @@ class Settings(BaseSettings):
 
     GOOGLE_DRIVE_API_KEY: Optional[str] = None
     
+    API_SECRET_KEY: str = "cutclipai_secret_key_change_me"
+    
     # AssemblyAI for transcription
     ASSEMBLY_AI_API_KEY: Optional[str] = None
     

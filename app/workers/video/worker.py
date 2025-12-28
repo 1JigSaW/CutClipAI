@@ -47,21 +47,8 @@ def process_video_task(
     pricing_service = PricingService()
     s3_service = S3Service()
 
-    has_sufficient_balance, balance, required_cost = check_balance_for_video_processing(
-        user_id=user_id,
-        wallet_service=wallet_service,
-    )
-    
-    if not has_sufficient_balance:
-        logger.warning(
-            f"Insufficient balance before processing | user_id={user_id} | "
-            f"balance={balance} | required={required_cost}",
-        )
-        return {
-            "status": "no_coins",
-            "message": "Insufficient balance",
-            "clips_count": settings.MAX_CLIPS_COUNT,
-        }
+    max_clips = settings.MAX_CLIPS_COUNT
+    reserved_cost = max_clips * settings.COINS_PER_CLIP
 
     temp_file_path = None
     temp_files_to_cleanup = []
@@ -75,7 +62,7 @@ def process_video_task(
 
         logger.info(
             f"Downloading video from S3 | user_id={user_id} | s3_key={s3_key} | "
-            f"temp_path={temp_file_path} | balance={balance} | required_cost={required_cost}",
+            f"temp_path={temp_file_path}",
         )
 
         download_start = time.time()
@@ -119,32 +106,74 @@ def process_video_task(
         )
 
         clips_count = len(clip_paths)
-        cost = pricing_service.calculate_cost(clips_count=clips_count)
+        actual_cost = pricing_service.calculate_cost(clips_count=clips_count)
+
+        # Calculate refund: reserved (max) - actual
+        refund_amount = reserved_cost - actual_cost
+        
+        if refund_amount > 0:
+            logger.info(
+                f"Refunding unused coins | user_id={user_id} | "
+                f"reserved={reserved_cost} | actual={actual_cost} | refund={refund_amount}",
+            )
+            wallet_service.add_coins(
+                user_id=user_id,
+                amount=refund_amount,
+            )
 
         logger.info(
             f"Video processing completed | user_id={user_id} | "
-            f"clips_count={clips_count} | cost={cost} coins",
+            f"clips_count={clips_count} | cost={actual_cost} coins",
         )
 
-        charged = wallet_service.charge_coins(
-            user_id=user_id,
-            amount=cost,
-        )
-
-        if not charged:
-            logger.warning(
-                f"Insufficient balance for video processing | user_id={user_id} | "
-                f"required={cost} coins | clips_count={clips_count}",
+        clip_s3_keys = []
+        for idx, clip_path in enumerate(clip_paths, 1):
+            logger.debug(
+                f"Uploading clip {idx}/{clips_count} to S3 | user_id={user_id} | "
+                f"clip_path={clip_path}",
             )
-            return {
-                "status": "no_coins",
-                "message": "Insufficient balance",
-                "clips_count": clips_count,
-            }
+
+            clip_s3_key = s3_service.upload_file(
+                file_path=clip_path,
+                prefix=f"videos/output/{user_id}",
+            )
+            clip_s3_keys.append(clip_s3_key)
+            temp_files_to_cleanup.append(clip_path)
+
+            logger.debug(
+                f"Clip {idx}/{clips_count} uploaded to S3 | user_id={user_id} | "
+                f"s3_key={clip_s3_key}",
+            )
 
         logger.info(
-            f"Coins charged successfully | user_id={user_id} | amount={cost}",
+            f"Video processing task completed successfully | user_id={user_id} | "
+            f"clips_count={clips_count} | clip_s3_keys={len(clip_s3_keys)}",
         )
+
+        return {
+            "status": "success",
+            "clips_count": clips_count,
+            "clip_s3_keys": clip_s3_keys,
+        }
+
+    except Exception as e:
+        log_error(
+            logger=logger,
+            message=f"Video processing task failed | user_id={user_id} | Refunding reserved coins",
+            error=e,
+            context={"s3_key": s3_key},
+        )
+        
+        # Refund everything on error
+        wallet_service.add_coins(
+            user_id=user_id,
+            amount=reserved_cost,
+        )
+        
+        return {
+            "status": "error",
+            "message": str(e),
+        }
 
         clip_s3_keys = []
         for idx, clip_path in enumerate(clip_paths, 1):

@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 
+from app.core.config import settings
 from app.services.billing.wallet import WalletService
 
 router = APIRouter(
@@ -9,6 +10,19 @@ router = APIRouter(
 )
 
 wallet_service = WalletService()
+
+
+def verify_api_key(
+    x_api_key: str = Header(None),
+):
+    """
+    Verify API secret key.
+    """
+    if x_api_key != settings.API_SECRET_KEY:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid API key",
+        )
 
 
 class BalanceResponse(BaseModel):
@@ -32,16 +46,13 @@ class BuyCoinsResponse(BaseModel):
 )
 async def get_balance(
     user_id: int,
+    x_api_key: str = Header(None),
 ):
     """
     Get user's coin balance.
-
-    Args:
-        user_id: Telegram user ID
-
-    Returns:
-        Current balance
     """
+    verify_api_key(x_api_key=x_api_key)
+    
     balance = wallet_service.get_balance(user_id=user_id)
 
     return BalanceResponse(
@@ -56,16 +67,13 @@ async def get_balance(
 )
 async def buy_coins(
     request: BuyCoinsRequest,
+    x_api_key: str = Header(None),
 ):
     """
     Buy coins and add to user's wallet.
-
-    Args:
-        request: Buy coins request with user_id and amount
-
-    Returns:
-        New balance after purchase
     """
+    verify_api_key(x_api_key=x_api_key)
+    
     if request.amount <= 0:
         raise HTTPException(
             status_code=400,
