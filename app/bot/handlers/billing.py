@@ -1,7 +1,7 @@
 import httpx
 
 from aiogram import Router, F
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, LabeledPrice, PreCheckoutQuery, Message
 
 from app.bot.keyboards.inline import get_balance_keyboard, get_buy_coins_keyboard
 from app.bot.texts.messages import (
@@ -77,12 +77,12 @@ async def handle_buy_coins_menu(
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("buy_coins:"))
-async def handle_buy_coins(
+@router.callback_query(F.data.startswith("buy_stars:"))
+async def handle_buy_stars(
     callback: CallbackQuery,
 ) -> None:
     """
-    Handle buy coins callback.
+    Handle buy coins callback - send invoice for Telegram Stars.
 
     Args:
         callback: Callback query object
@@ -90,50 +90,94 @@ async def handle_buy_coins(
     if not callback.message or not callback.from_user:
         return
 
+    data_parts = callback.data.split(":")
+    amount = int(data_parts[1])
+    stars_price = int(data_parts[2])
+
     user_id = callback.from_user.id
-    amount_str = callback.data.split(
-        ":",
-    )[1]
-    amount = int(
-        amount_str,
-    )
 
     logger.info(
-        f"User buying coins | user_id={user_id} | amount={amount}",
+        f"User creating invoice | user_id={user_id} | "
+        f"amount={amount} | stars={stars_price}",
     )
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            url=f"{settings.API_BASE_URL}/billing/buy",
-            json={
-                "user_id": user_id,
-                "amount": amount,
-            },
+    # Use XTR for Telegram Stars
+    prices = [
+        LabeledPrice(
+            label=f"{amount} AI Clips",
+            amount=stars_price,
         )
+    ]
 
-        if response.status_code == 200:
-            data = response.json()
-            new_balance = data["new_balance"]
-
-            logger.info(
-                f"Coins purchased successfully | user_id={user_id} | "
-                f"amount={amount} | new_balance={new_balance}",
-            )
-
-            await callback.message.answer(
-                text=COINS_ADDED_MESSAGE.format(
-                    amount=amount,
-                    balance=new_balance,
-                ),
-            )
-        else:
-            logger.error(
-                f"Failed to purchase coins | user_id={user_id} | "
-                f"amount={amount} | status_code={response.status_code}",
-            )
-            await callback.message.answer(
-                text="❌ Failed to purchase coins. Please try again.",
-            )
+    await callback.message.answer_invoice(
+        title=f"Top Up: {amount} Coins",
+        description=f"Get {amount} AI-powered video clips with subtitles. "
+                    f"1 Clip = 1 Coin.",
+        prices=prices,
+        payload=f"buy_coins:{amount}",
+        currency="XTR",
+        provider_token="", # Empty for Telegram Stars
+    )
 
     await callback.answer()
+
+
+@router.pre_checkout_query()
+async def handle_pre_checkout(
+    pre_checkout_query: PreCheckoutQuery,
+) -> None:
+    """
+    Handle pre-checkout query. Always answer OK for stars.
+    """
+    await pre_checkout_query.answer(ok=True)
+
+
+@router.message(F.successful_payment)
+async def handle_successful_payment(
+    message: Message,
+) -> None:
+    """
+    Handle successful payment and add coins to wallet.
+    """
+    if not message.successful_payment or not message.from_user:
+        return
+
+    payload = message.successful_payment.invoice_payload
+    user_id = message.from_user.id
+    
+    if payload.startswith("buy_coins:"):
+        amount = int(payload.split(":")[1])
+        
+        logger.info(
+            f"Payment successful | user_id={user_id} | amount={amount}",
+        )
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url=f"{settings.API_BASE_URL}/billing/buy",
+                json={
+                    "user_id": user_id,
+                    "amount": amount,
+                },
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                new_balance = data["new_balance"]
+
+                await message.answer(
+                    text=COINS_ADDED_MESSAGE.format(
+                        amount=amount,
+                        balance=new_balance,
+                    ),
+                )
+            else:
+                logger.error(
+                    f"Failed to update balance after payment | user_id={user_id} | "
+                    f"amount={amount} | status_code={response.status_code}",
+                )
+                await message.answer(
+                    text="❌ Payment received but failed to update balance. "
+                         "Please contact support with your payment ID.",
+                )
 

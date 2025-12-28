@@ -53,21 +53,41 @@ async def poll_task_status(
     Returns:
         Task result dictionary or None
     """
-    for _ in range(max_attempts):
-        response = await client.get(
-            url=f"{settings.API_BASE_URL}/video/status/{task_id}",
-        )
+    for attempt in range(max_attempts):
+        try:
+            response = await client.get(
+                url=f"{settings.API_BASE_URL}/video/status/{task_id}",
+            )
 
-        if response.status_code != 200:
-            return None
+            if response.status_code != 200:
+                logger.warning(
+                    f"Task status request failed | task_id={task_id} | "
+                    f"status_code={response.status_code} | attempt={attempt+1}/{max_attempts}"
+                )
+                await asyncio.sleep(delay)
+                continue
 
-        data = response.json()
-        status = data.get("status")
+            data = response.json()
+            status = data.get("status")
 
-        if status == "completed":
-            return data.get("result")
-        elif status == "failed":
-            return None
+            if status == "completed":
+                return data.get("result")
+            elif status == "failed":
+                logger.error(f"Task failed on server | task_id={task_id}")
+                return None
+
+        except (httpx.ReadError, httpx.RemoteProtocolError, httpx.ConnectError) as e:
+            logger.warning(
+                f"Connection error while polling task status | task_id={task_id} | "
+                f"error={type(e).__name__} | attempt={attempt+1}/{max_attempts}"
+            )
+        except Exception as e:
+            log_error(
+                logger=logger,
+                message="Unexpected error while polling task status",
+                error=e,
+                context={"task_id": task_id, "attempt": attempt + 1},
+            )
 
         await asyncio.sleep(delay)
 
@@ -587,7 +607,7 @@ async def handle_text_message(
     except httpx.TimeoutException as e:
         log_error(
             logger=logger,
-            message=f"Timeout downloading from Google Drive | user_id={user_id}",
+            message=f"Timeout processing Google Drive link | user_id={user_id}",
             error=e,
             context={"url": text[:50]},
         )
@@ -597,7 +617,7 @@ async def handle_text_message(
     except Exception as e:
         log_error(
             logger=logger,
-            message=f"Failed to download from Google Drive | user_id={user_id}",
+            message=f"Failed to process Google Drive link | user_id={user_id}",
             error=e,
             context={"url": text[:50]},
         )

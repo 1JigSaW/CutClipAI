@@ -77,15 +77,20 @@ Please try again later or contact support.
 """
 
 COINS_ADDED_MESSAGE = """
-✅ `{amount}` coins added!
+✅ *Payment Successful!*
 
-Your new balance: `{balance}` coins.
+`{amount}` coins have been added to your wallet.
+Current balance: `{balance}` coins.
+
+You're all set! Send me a video or link to start creating clips. 🎬
 """
 
 BUY_COINS_MESSAGE = """
-💰 *Buy coins:*
+💎 *Top Up Your Balance*
 
-`1 clip = 1 coin`
+Choose a package that fits your needs. Each clip generated costs 1 coin. 
+
+Payments are handled securely via **Telegram Stars** ⭐.
 """
 
 VIDEO_REQUIREMENTS_MESSAGE = """

@@ -3,7 +3,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 def get_buy_coins_keyboard() -> InlineKeyboardMarkup:
     """
-    Create inline keyboard for buying coins.
+    Create inline keyboard for buying coins via Telegram Stars.
 
     Returns:
         Inline keyboard markup with coin purchase options
@@ -12,23 +12,25 @@ def get_buy_coins_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="💎 5 coins",
-                    callback_data="buy_coins:5",
-                ),
-                InlineKeyboardButton(
-                    text="💎 20 coins",
-                    callback_data="buy_coins:20",
+                    text="🎯 Starter: 10 clips (150 ⭐)",
+                    callback_data="buy_stars:10:1",
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text="💎 50 coins",
-                    callback_data="buy_coins:50",
+                    text="🚀 Creator: 35 clips (450 ⭐) - POPULAR",
+                    callback_data="buy_stars:35:450",
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text="💰 Check balance",
+                    text="💎 Pro: 100 clips (990 ⭐)",
+                    callback_data="buy_stars:100:990",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💰 Check Balance",
                     callback_data="check_balance",
                 ),
             ],

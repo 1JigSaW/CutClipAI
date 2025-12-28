@@ -432,56 +432,41 @@ def create_clip_with_moviepy_subtitles(
         x_offset = round_to_even(x_offset)
         y_offset = round_to_even(y_offset)
 
-        # Unified cropping logic for MoviePy 1.x and 2.x to prevent stretching
+        # Reverted to original working logic
         try:
-            if hasattr(clip, 'crop'):
-                logger.info("Using MoviePy 1.x crop method")
+            cropped_clip = clip.with_crop(
+                x1=x_offset,
+                y1=y_offset,
+                x2=x_offset + new_width,
+                y2=y_offset + new_height
+            )
+        except AttributeError:
+            # Fallback for older MoviePy versions
+            try:
                 cropped_clip = clip.crop(
                     x1=x_offset,
                     y1=y_offset,
                     x2=x_offset + new_width,
                     y2=y_offset + new_height
                 )
-            elif hasattr(clip, 'with_crop'):
-                logger.info("Using MoviePy 2.x with_crop method")
-                cropped_clip = clip.with_crop(
+            except AttributeError:
+                cropped_clip = clip.cropped(
                     x1=x_offset,
                     y1=y_offset,
                     x2=x_offset + new_width,
                     y2=y_offset + new_height
                 )
-            else:
-                logger.info("Using manual vfx.crop fallback")
-                from moviepy.video.fx.all import crop
-                cropped_clip = crop(
-                    clip,
-                    x1=x_offset,
-                    y1=y_offset,
-                    x2=x_offset + new_width,
-                    y2=y_offset + new_height
-                )
-        except Exception as e:
-            logger.error(f"Cropping failed: {e}. Video might be stretched!")
-            cropped_clip = clip
         
         target_width = 1080
         target_height = 1920
         
-        # Resize maintaining aspect ratio to 1080x1920
-        try:
-            if hasattr(cropped_clip, 'resized'):
-                # MoviePy 2.x
-                cropped_clip = cropped_clip.resized(height=target_height)
-                # If width is not exactly target_width due to rounding, force it or pad
-                if cropped_clip.w != target_width:
-                    cropped_clip = cropped_clip.resized((target_width, target_height))
-            else:
-                # MoviePy 1.x
-                cropped_clip = cropped_clip.resize(height=target_height)
-                if cropped_clip.w != target_width:
-                    cropped_clip = cropped_clip.resize(new_size=(target_width, target_height))
-        except Exception as e:
-            logger.error(f"Resizing failed: {e}")
+        if new_width != target_width or new_height != target_height:
+            try:
+                # MoviePy 2.x resized takes (width, height)
+                cropped_clip = cropped_clip.resized((target_width, target_height))
+            except AttributeError:
+                # Fallback for MoviePy 1.x
+                cropped_clip = cropped_clip.resize(new_size=(target_width, target_height))
 
         final_clips = [cropped_clip]
 
