@@ -1,3 +1,4 @@
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -72,12 +73,21 @@ def _get_video_codec() -> str:
 def _get_ffmpeg_preset() -> str:
     """
     Get FFmpeg preset for encoding.
-    Uses configured preset from settings.
+    Returns appropriate preset based on codec (GPU vs CPU).
 
     Returns:
         Preset name
     """
-    return settings.FFMPEG_PRESET
+    configured_preset = settings.FFMPEG_PRESET
+    
+    if _get_gpu_encoding_available() and _get_video_codec() == "h264_nvenc":
+        if configured_preset in ["p1", "p2", "p3", "p4", "p5", "p6", "p7"]:
+            return configured_preset
+        return "p1"
+    else:
+        if configured_preset in ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow", "placebo"]:
+            return configured_preset
+        return "veryfast"
 
 
 def _get_ffmpeg_quality() -> int:
@@ -151,11 +161,43 @@ def _run_ffmpeg(
         f"gpu_available={_get_gpu_encoding_available()}",
     )
     
-    subprocess.run(
+    result = subprocess.run(
         cmd,
-        check=True,
+        check=False,
         capture_output=True,
+        text=True,
     )
+    
+    if result.returncode != 0:
+        error_msg = result.stderr or result.stdout or "Unknown error"
+        full_cmd = ' '.join(cmd)
+        logger.error(
+            f"FFmpeg command failed | returncode={result.returncode} | "
+            f"operation={operation} | "
+            f"full_cmd={full_cmd} | "
+            f"stderr={error_msg}"
+        )
+        raise subprocess.CalledProcessError(
+            returncode=result.returncode,
+            cmd=cmd,
+            output=result.stdout,
+            stderr=result.stderr,
+        )
+    else:
+        if result.stderr:
+            stderr_lower = result.stderr.lower()
+            if 'subtitle' in stderr_lower or 'ass' in stderr_lower or 'libass' in stderr_lower:
+                logger.warning(
+                    f"FFmpeg stderr contains subtitle-related messages | "
+                    f"operation={operation} | "
+                    f"stderr={result.stderr[:1000]}"
+                )
+            if 'error' in stderr_lower or 'warning' in stderr_lower:
+                logger.warning(
+                    f"FFmpeg stderr contains errors/warnings | "
+                    f"operation={operation} | "
+                    f"stderr={result.stderr[:1000]}"
+                )
 
 
 def trim_video(
@@ -282,10 +324,11 @@ def burn_subtitles(
 ) -> None:
     """
     Burn subtitles into video.
+    Supports ASS format with positioning at 75% height (lower-middle).
 
     Args:
         video_path: Path to input video
-        srt_path: Path to ASS subtitle file
+        srt_path: Path to ASS subtitle file (ASS format for positioning support)
         output_path: Path to output video with subtitles
     """
     video_codec = _get_video_codec()
@@ -324,18 +367,19 @@ def cut_crop_and_burn_optimized(
     output_path: str,
     start_time: float,
     end_time: float,
-    srt_path: str,
+    srt_path: str | None,
 ) -> None:
     """
     Optimized single-pass operation: cut clip, crop to 9:16, and burn subtitles.
     Uses GPU acceleration when available for 3-5x faster processing.
+    Subtitles are positioned at 75% height (lower-middle) via ASS format.
 
     Args:
         input_path: Path to input video
         output_path: Path to output video
         start_time: Start time in seconds
         end_time: End time in seconds
-        srt_path: Path to ASS subtitle file
+        srt_path: Path to ASS subtitle file (ASS format supports positioning)
     """
     duration = end_time - start_time
     
@@ -350,12 +394,129 @@ def cut_crop_and_burn_optimized(
     # For centering: use eval filter to calculate positions, or use simpler approach
     # Using scale with force_original_aspect_ratio=decrease then pad with -1 for auto-center
     # If -1 doesn't work, we'll use explicit calculations
-    video_filter = (
-        f"crop=min(iw,ih*9/16):ih:(iw-min(iw,ih*9/16))/2:0,"
+    # Handle None or empty string for srt_path
+    use_subtitles = False
+    srt_path_str = ""
+    
+    if srt_path:
+        srt_path_str = str(srt_path)
+        srt_path_obj = Path(srt_path_str)
+        # Check if subtitle file exists and is not empty
+        if srt_path_obj.exists():
+            file_size = srt_path_obj.stat().st_size
+            if file_size > 0:
+                use_subtitles = True
+            else:
+                logger.warning(f"Subtitle file is empty: {srt_path_str}, processing without subtitles")
+        else:
+            logger.warning(f"Subtitle file not found: {srt_path_str}, processing without subtitles")
+    else:
+        logger.debug("No subtitle path provided, processing without subtitles")
+    
+    # Build video filter - only add subtitles if file exists and is not empty
+    base_filter = (
+        f"crop=min(iw\\,ih*9/16):ih:(iw-min(iw\\,ih*9/16))/2:0,"
         f"scale=1080:1920:force_original_aspect_ratio=decrease,"
-        f"pad=1080:1920:-1:-1:black,"
-        f"subtitles={srt_path}"
+        f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black"
     )
+    
+    if use_subtitles:
+        # For FFmpeg subtitles filter, we need to escape the path properly
+        # The filter syntax is: subtitles=filename
+        # On macOS, paths contain colons which need special handling
+        # Use absolute path and escape colons with backslash
+        abs_path = str(srt_path_obj.resolve())
+        
+        # FFmpeg subtitles filter requires escaping special characters in paths
+        # CRITICAL: On macOS, paths contain colons (:) which MUST be escaped as \:
+        # The escape sequence \: tells FFmpeg that : is part of the path, not a filter separator
+        # Escape order: first backslashes, then colons, then brackets
+        escaped_path = abs_path
+        
+        # Step 1: Escape backslashes first (so we don't double-escape)
+        if '\\' in escaped_path:
+            escaped_path = escaped_path.replace('\\', '\\\\')
+        
+        # Step 2: Escape colons (CRITICAL for macOS paths like /Users/jigsaw/...)
+        if ':' in escaped_path:
+            escaped_path = escaped_path.replace(':', '\\:')
+        
+        # Step 3: Escape brackets
+        if '[' in escaped_path:
+            escaped_path = escaped_path.replace('[', '\\[')
+        if ']' in escaped_path:
+            escaped_path = escaped_path.replace(']', '\\]')
+        
+        # Build filter with subtitles
+        # CRITICAL: Use 'subtitles' filter (not 'ass') - it's more reliable and handles ASS format
+        # FFmpeg subtitles filter auto-detects ASS format and works better
+        # Syntax: subtitles=filename (path must be escaped)
+        video_filter = f"{base_filter},subtitles={escaped_path}"
+        
+        # Log the filter for debugging
+        logger.info(
+            f"Subtitle filter construction | "
+            f"original_path={abs_path} | "
+            f"escaped_path={escaped_path} | "
+            f"path_exists={srt_path_obj.exists()} | "
+            f"filter_snippet=subtitles={escaped_path[:80]}..."
+        )
+        
+        # Verify file exists and is readable
+        if not srt_path_obj.exists():
+            logger.error(
+                f"ASS file does not exist! | path={abs_path} | "
+                f"Subtitles will not be applied!"
+            )
+        elif not srt_path_obj.is_file():
+            logger.error(
+                f"ASS path is not a file! | path={abs_path} | "
+                f"Subtitles will not be applied!"
+            )
+        
+        file_size = srt_path_obj.stat().st_size
+        
+        # Log the actual FFmpeg command that will be used
+        # Show both original and escaped paths for debugging
+        logger.info(
+            f"Adding subtitles to video filter | "
+            f"original_path={abs_path} | "
+            f"escaped_path={escaped_path} | "
+            f"file_size={file_size} bytes | "
+            f"colons_in_path={abs_path.count(':')} | "
+            f"colons_escaped={escaped_path.count('\\\\:')}"
+        )
+        
+        # Verify file is readable and has valid ASS content
+        try:
+            with open(abs_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                lines = content.split('\n')
+                logger.debug(
+                    f"ASS file validation | "
+                    f"total_lines={len(lines)} | "
+                    f"first_line={lines[0] if lines else 'empty'} | "
+                    f"has_events={any('[Events]' in line for line in lines)} | "
+                    f"has_styles={any('[V4+ Styles]' in line or '[V4 Styles]' in line for line in lines)}"
+                )
+                
+                # Count dialogue entries
+                dialogue_count = sum(1 for line in lines if line.startswith('Dialogue:'))
+                logger.info(
+                    f"ASS file contains {dialogue_count} subtitle entries | "
+                    f"file_size={file_size} bytes"
+                )
+                
+                if dialogue_count == 0:
+                    logger.warning(
+                        f"ASS file has no dialogue entries! "
+                        f"Subtitles will not appear. File content preview: {content[:500]}"
+                    )
+        except Exception as e:
+            logger.error(f"Failed to read ASS file: {e}", exc_info=True)
+    else:
+        video_filter = base_filter
+        logger.debug(f"Processing without subtitles | srt_path={srt_path_str or 'None'}")
     
     cmd = _build_ffmpeg_base_cmd(
         input_path=input_path,
@@ -385,8 +546,18 @@ def cut_crop_and_burn_optimized(
     if _get_gpu_encoding_available():
         cmd.extend(["-rc", "vbr", "-cq", str(quality), "-b:v", "0"])
     
+    # Log the full command for debugging subtitle issues
+    if use_subtitles:
+        full_cmd_str = ' '.join(cmd)
+        logger.info(
+            f"FFmpeg command with subtitles | "
+            f"subtitle_file={abs_path} | "
+            f"filter={video_filter[:200]}... | "
+            f"full_cmd_preview={full_cmd_str[:300]}..."
+        )
+    
     _run_ffmpeg(
         cmd=cmd,
-        operation=f"cut, crop and burn (codec={video_codec}, start={start_time}s, end={end_time}s)",
+        operation=f"cut, crop and burn (codec={video_codec}, start={start_time}s, end={end_time}s, subtitles={'yes' if use_subtitles else 'no'})",
     )
 

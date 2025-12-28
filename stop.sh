@@ -62,5 +62,14 @@ pkill -9 -f "uvicorn app.api.main:app" 2>/dev/null || true
 pkill -9 -f "celery -A app.core.celery_app worker" 2>/dev/null || true
 pkill -9 -f "python3 -m app.bot.bot" 2>/dev/null || true
 
+# Kill any process using port 8000
+if command -v lsof > /dev/null 2>&1; then
+    PORT_8000_PID=$(lsof -ti:8000 2>/dev/null || echo "")
+    if [ ! -z "$PORT_8000_PID" ]; then
+        echo -e "${YELLOW}   Killing process on port 8000 (PID: $PORT_8000_PID)...${NC}"
+        kill -9 $PORT_8000_PID 2>/dev/null || true
+    fi
+fi
+
 echo -e "${GREEN}✅ All services stopped${NC}"
 

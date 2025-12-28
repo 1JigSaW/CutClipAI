@@ -12,23 +12,23 @@ def get_buy_coins_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="5 coins",
+                    text="💎 5 coins",
                     callback_data="buy_coins:5",
                 ),
                 InlineKeyboardButton(
-                    text="20 coins",
+                    text="💎 20 coins",
                     callback_data="buy_coins:20",
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text="50 coins",
+                    text="💎 50 coins",
                     callback_data="buy_coins:50",
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text="Check balance",
+                    text="💰 Check balance",
                     callback_data="check_balance",
                 ),
             ],
@@ -48,7 +48,7 @@ def get_balance_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Buy coins",
+                    text="💳 Buy coins",
                     callback_data="buy_coins_menu",
                 ),
             ],
@@ -70,6 +70,12 @@ def get_upload_video_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="📤 Upload Video",
                     callback_data="upload_video",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💳 Buy Coins",
+                    callback_data="buy_coins_menu",
                 ),
             ],
         ]

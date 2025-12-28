@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -11,6 +12,9 @@ from app.utils.video.ffmpeg import burn_subtitles as burn_subs
 from app.utils.video.files import create_temp_dir
 
 logger = get_logger(__name__)
+
+# Global lock for Whisper model access (Whisper is not thread-safe)
+_whisper_lock = threading.Lock()
 
 
 class SubtitlesService:
@@ -117,7 +121,9 @@ class SubtitlesService:
                 if self.gpu_available:
                     transcribe_kwargs["fp16"] = True
                 
-                result = self.model.transcribe(**transcribe_kwargs)
+                # Whisper model is not thread-safe, use lock for parallel access
+                with _whisper_lock:
+                    result = self.model.transcribe(**transcribe_kwargs)
         else:
             logger.info(
                 f"No cache info provided, transcribing clip directly | "
@@ -138,7 +144,9 @@ class SubtitlesService:
             if self.gpu_available:
                 transcribe_kwargs["fp16"] = True
             
-            result = self.model.transcribe(**transcribe_kwargs)
+            # Whisper model is not thread-safe, use lock for parallel access
+            with _whisper_lock:
+                result = self.model.transcribe(**transcribe_kwargs)
 
         segments_count = len(result.get("segments", []))
         logger.info(f"Transcribed video | segments_count={segments_count}")

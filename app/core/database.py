@@ -9,6 +9,7 @@ engine = create_engine(
     url=settings.DATABASE_URL,
     echo=False,
     pool_pre_ping=True,
+    connect_args={"connect_timeout": 5},
 )
 
 SessionLocal = sessionmaker(
@@ -35,5 +36,14 @@ def init_db():
     """
     Initialize database tables.
     """
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        from app.core.logger import get_logger
+        logger = get_logger(__name__)
+        logger.warning(
+            f"Failed to initialize database | error={e} | "
+            f"database_url={settings.DATABASE_URL.split('@')[1] if '@' in settings.DATABASE_URL else 'hidden'}. "
+            f"Some features may not work without database connection."
+        )
 

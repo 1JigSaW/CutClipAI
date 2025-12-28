@@ -107,7 +107,10 @@ def process_video_task(
 
         pipeline_start = time.time()
         pipeline = VideoPipeline()
-        clip_paths = pipeline.process_optimized(file_path=temp_file_path)
+        clip_paths = pipeline.process_optimized(
+            file_path=temp_file_path,
+            user_id=user_id,
+        )
         pipeline_time = time.time() - pipeline_start
 
         logger.info(

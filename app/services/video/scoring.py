@@ -202,28 +202,58 @@ class ScoringService:
                     "words": all_words,
                 }
                 
+                score_breakdown = {}
                 clip_score = self._calculate_score(
                     segment=combined_segment,
                     total_duration=total_duration,
                     llm_analysis=llm_analysis,
+                    breakdown=score_breakdown,
                 )
+                
+                llm_reason = None
+                if llm_analysis:
+                    for moment in llm_analysis.get("best_moments", []):
+                        if (clip_start <= moment.get("end", 0) and 
+                            clip_end >= moment.get("start", 0)):
+                            llm_reason = moment.get("reason", "")
+                            break
                 
                 clips.append({
                     "start": clip_start,
                     "end": clip_end,
                     "score": clip_score,
                     "text": combined_text,
+                    "score_breakdown": score_breakdown,
+                    "llm_reason": llm_reason,
                 })
 
             i = j if j > i else i + 1
 
         return clips
 
+    def _calculate_score_with_breakdown(
+        self,
+        segment: dict[str, Any],
+        total_duration: float = 0.0,
+        llm_analysis: Optional[dict[str, Any]] = None,
+        breakdown: Optional[dict[str, float]] = None,
+    ) -> float:
+        """
+        Calculate score with detailed breakdown for logging.
+        """
+        return self._calculate_score(
+            segment=segment,
+            total_duration=total_duration,
+            llm_analysis=llm_analysis,
+            breakdown=breakdown,
+        )
+    
     def _calculate_score(
         self,
         segment: dict[str, Any],
         total_duration: float = 0.0,
         llm_analysis: Optional[dict[str, Any]] = None,
+        breakdown: Optional[dict[str, float]] = None,
     ) -> float:
         """
         Calculate score based on speech dynamics and emotion indicators.
@@ -296,6 +326,16 @@ class ScoringService:
                 llm_analysis=llm_analysis,
             )
             score += llm_score * settings.SCORING_WEIGHT_LLM
+        
+        if breakdown is not None:
+            breakdown["energy"] = energy_score
+            breakdown["tempo"] = tempo_score
+            breakdown["pauses"] = pause_score
+            breakdown["punctuation"] = punctuation_score
+            breakdown["speech_pace"] = pace_score
+            breakdown["structure"] = structure_score
+            breakdown["hook"] = hook_score
+            breakdown["llm"] = llm_score
         
         logger.debug(
             f"Segment score breakdown | "
@@ -636,7 +676,7 @@ class ScoringService:
         clips: list[dict[str, Any]],
     ) -> None:
         """
-        Log detailed information about selected clips.
+        Log detailed information about selected clips with reasons.
         
         Args:
             clips: List of selected clips
@@ -648,12 +688,39 @@ class ScoringService:
             duration = clip["end"] - clip["start"]
             preview = clip["text"][:100] + "..." if len(clip["text"]) > 100 else clip["text"]
             
+            reasons = []
+            if clip.get("llm_reason"):
+                reasons.append(f"LLM: {clip['llm_reason']}")
+            if clip.get("score_breakdown"):
+                breakdown = clip["score_breakdown"]
+                breakdown_parts = []
+                if breakdown.get("energy", 0) > 0:
+                    breakdown_parts.append(f"energy={breakdown['energy']:.1f}")
+                if breakdown.get("tempo", 0) > 0:
+                    breakdown_parts.append(f"tempo={breakdown['tempo']:.1f}")
+                if breakdown.get("pauses", 0) > 0:
+                    breakdown_parts.append(f"pauses={breakdown['pauses']:.1f}")
+                if breakdown.get("punctuation", 0) > 0:
+                    breakdown_parts.append(f"punctuation={breakdown['punctuation']:.1f}")
+                if breakdown.get("speech_pace", 0) > 0:
+                    breakdown_parts.append(f"pace={breakdown['speech_pace']:.1f}")
+                if breakdown.get("structure", 0) > 0:
+                    breakdown_parts.append(f"structure={breakdown['structure']:.1f}")
+                if breakdown.get("hook", 0) > 0:
+                    breakdown_parts.append(f"hook={breakdown['hook']:.1f}")
+                if breakdown.get("llm", 0) > 0:
+                    breakdown_parts.append(f"llm={breakdown['llm']:.1f}")
+                if breakdown_parts:
+                    reasons.append(f"Score breakdown: {', '.join(breakdown_parts)}")
+            
             logger.info(
                 f"\n#{idx} | Score: {clip['score']:.2f} | "
                 f"Duration: {duration:.1f}s | "
-                f"Time: {clip['start']:.1f}s-{clip['end']:.1f}s\n"
-                f"Text: {preview}",
+                f"Time: {clip['start']:.1f}s-{clip['end']:.1f}s"
             )
+            if reasons:
+                logger.info(f"   Reasons: {' | '.join(reasons)}")
+            logger.info(f"   Text: {preview}")
         
         logger.info("=" * 60)
 

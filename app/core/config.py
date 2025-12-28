@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     VIDEO_MAX_DURATION_SECONDS: int = 1800
     CLIP_MIN_DURATION_SECONDS: int = 20
     CLIP_MAX_DURATION_SECONDS: int = 30
-    MAX_CLIPS_COUNT: int = 3
+    MAX_CLIPS_COUNT: int = 6
     CLIP_PROCESSING_MAX_WORKERS: int = 3
     
     SCORING_WEIGHT_ENERGY: float = 3.0
@@ -63,10 +63,23 @@ class Settings(BaseSettings):
 
     GOOGLE_DRIVE_API_KEY: Optional[str] = None
     
-    # OpenAI API for LLM analysis
+    # AssemblyAI for transcription
+    ASSEMBLY_AI_API_KEY: Optional[str] = None
+    
+    # LLM API for analysis (supports multiple providers)
     OPENAI_API_KEY: Optional[str] = None
-    OPENAI_MODEL: str = "gpt-4o-mini"  # Options: gpt-4o-mini (fast/cheap), gpt-4o (quality), gpt-4-turbo (balanced)
-    USE_LLM_ANALYSIS: bool = False
+    OPENAI_MODEL: str = "gpt-4o-mini"  # OpenAI model name (for backward compatibility)
+    ANTHROPIC_API_KEY: Optional[str] = None
+    GOOGLE_API_KEY: Optional[str] = None
+    
+    # LLM configuration (format: provider:model)
+    LLM: str = "openai:gpt-4o-mini"
+    USE_LLM_ANALYSIS: bool = True
+    
+    # Flow integration (LangFlow or custom workflow)
+    FLOW_API_URL: Optional[str] = None
+    FLOW_API_KEY: Optional[str] = None
+    USE_FLOW: bool = False
 
     class Config:
         env_file = ".env"

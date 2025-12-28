@@ -1,3 +1,4 @@
+import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -5,45 +6,45 @@ from typing import Any, Optional
 
 from app.core.config import settings
 from app.core.logger import get_logger
+from app.services.video.assemblyai_subtitles import AssemblyAISubtitlesService
+from app.services.video.assemblyai_transcription import AssemblyAITranscriptionService
 from app.services.video.clipping import ClippingService
-from app.services.video.scoring import ScoringService
-from app.services.video.subtitles import SubtitlesService
-from app.services.video.transcription import get_transcription_cache
-from app.services.video.whisper import WhisperService
-from app.utils.video.ffmpeg import cut_crop_and_burn_optimized
-from app.utils.video.files import create_temp_dir
+from app.services.video.flow_integration import FlowIntegrationService
+from app.services.video.llm_analysis import LLMAnalysisService
 
 logger = get_logger(__name__)
+
+try:
+    from app.services.video.moviepy_subtitles import create_clip_with_moviepy_subtitles, MOVIEPY_AVAILABLE
+except ImportError as e:
+    logger.error(f"Failed to import MoviePy subtitles: {e}")
+    create_clip_with_moviepy_subtitles = None
+    MOVIEPY_AVAILABLE = False
+from app.utils.video.ffmpeg import cut_crop_and_burn_optimized
+from app.utils.video.files import create_temp_dir
 
 
 class VideoPipeline:
     def __init__(
         self,
-        whisper_service: Optional[WhisperService] = None,
-        scoring_service: Optional[ScoringService] = None,
+        assemblyai_service: Optional[AssemblyAITranscriptionService] = None,
+        llm_analysis_service: Optional[LLMAnalysisService] = None,
+        flow_service: Optional[FlowIntegrationService] = None,
         clipping_service: Optional[ClippingService] = None,
-        subtitles_service: Optional[SubtitlesService] = None,
     ):
-        if whisper_service is None and subtitles_service is None:
-            logger.info("Creating WhisperService with shared model for both services")
-            shared_whisper_service = WhisperService()
-            shared_model = shared_whisper_service.model
-            self.whisper_service = shared_whisper_service
-            logger.info("Creating SubtitlesService with shared Whisper model")
-            self.subtitles_service = SubtitlesService(model=shared_model)
-        else:
-            self.whisper_service = whisper_service or WhisperService()
-            if subtitles_service is None:
-                logger.info("Reusing Whisper model for SubtitlesService")
-                shared_model = self.whisper_service.model
-                self.subtitles_service = SubtitlesService(model=shared_model)
-            else:
-                self.subtitles_service = subtitles_service
+        self.assemblyai_service = assemblyai_service or AssemblyAITranscriptionService()
+        self.llm_analysis_service = llm_analysis_service or LLMAnalysisService()
+        self.flow_service = flow_service or FlowIntegrationService()
+        
+        logger.info(
+            f"VideoPipeline initialized | "
+            f"assemblyai_enabled=True | "
+            f"llm_enabled={self.llm_analysis_service.enabled} | "
+            f"flow_enabled={self.flow_service.enabled}"
+        )
 
-        logger.info("VideoPipeline initialized with shared Whisper model")
-
-        self.scoring_service = scoring_service or ScoringService()
         self.clipping_service = clipping_service or ClippingService()
+        self.assemblyai_subtitles_service = AssemblyAISubtitlesService()
 
     def process(
         self,
@@ -70,12 +71,12 @@ class VideoPipeline:
             f"Extracted {len(segments)} segments from video | file_path={file_path}",
         )
 
-        best_moments = self.scoring_service.select_best_moments(
-            segments=segments,
+        logger.error(
+            "Old process() method is deprecated. Use process_optimized() instead. "
+            "Scoring service has been removed - only LLM analysis is supported."
         )
-
-        logger.info(
-            f"Selected {len(best_moments)} best moments for clipping",
+        raise NotImplementedError(
+            "Scoring service removed. Use process_optimized() with LLM analysis only."
         )
 
         clip_paths = []
@@ -103,22 +104,24 @@ class VideoPipeline:
 
         return clip_paths
 
-    def process_optimized(
+    async def process_optimized_async(
         self,
         file_path: str,
+        user_id: Optional[int] = None,
     ) -> list[str]:
         """
-        Optimized pipeline: single Whisper call + single FFmpeg pass per clip.
-        4-5x faster than original pipeline.
+        Optimized async pipeline using AssemblyAI + Pydantic AI + Flow.
+        Based on supoclip/backend structure.
 
         Args:
             file_path: Path to input video file
+            user_id: Optional user ID for Flow integration
 
         Returns:
             List of paths to generated clip files
         """
         logger.info(
-            f"Starting optimized video pipeline | file_path={file_path}",
+            f"Starting optimized async video pipeline | file_path={file_path}",
         )
 
         trim_start = time.time()
@@ -131,12 +134,20 @@ class VideoPipeline:
             f"Video trimmed | trimmed_path={trimmed_path} | time={trim_time:.1f}s",
         )
 
+        if self.flow_service.enabled and user_id is not None:
+            flow_task_id = await self.flow_service.upload_video_to_flow(
+                video_path=str(trimmed_path),
+                user_id=user_id,
+            )
+            if flow_task_id:
+                logger.info(f"Video uploaded to Flow | flow_task_id={flow_task_id}")
+
         transcription_start = time.time()
         logger.info(
-            f"Starting Whisper transcription | video_path={trimmed_path}",
+            f"Starting AssemblyAI transcription | video_path={trimmed_path}",
         )
 
-        transcription_result = self.whisper_service.transcribe_full(
+        transcription_result = self.assemblyai_service.transcribe(
             video_path=trimmed_path,
             use_cache=True,
         )
@@ -145,49 +156,108 @@ class VideoPipeline:
         segments_count = len(transcription_result.get("segments", []))
 
         logger.info(
-            f"Full transcription completed | "
-            f"segments_count={segments_count} | time={transcription_time:.1f}s | "
-            f"speed={transcription_time/60:.2f}min for 30min video",
+            f"AssemblyAI transcription completed | "
+            f"segments_count={segments_count} | time={transcription_time:.1f}s",
         )
 
-        segments = []
-        for segment in transcription_result.get("segments", []):
-            segments.append(
-                {
-                    "start": segment["start"],
-                    "end": segment["end"],
-                    "text": segment["text"],
-                }
+        segments = transcription_result.get("segments", [])
+        # Calculate total duration from last segment end time
+        if segments:
+            total_duration = max(seg.get("end", 0.0) for seg in segments)
+        else:
+            total_duration = 0.0
+
+        llm_analysis_start = time.time()
+        
+        logger.info(
+            f"Starting LLM analysis | "
+            f"llm_enabled={self.llm_analysis_service.enabled} | "
+            f"client={self.llm_analysis_service.client is not None} | "
+            f"segments_count={len(segments)} | "
+            f"total_duration={total_duration:.1f}s"
+        )
+        
+        # LLMAnalysisService.analyze_transcription is synchronous, not async
+        llm_analysis = self.llm_analysis_service.analyze_transcription(
+            segments=segments,
+            total_duration=total_duration,
+        )
+        
+        llm_analysis_time = time.time() - llm_analysis_start
+        
+        logger.info(
+            f"LLM analysis result | "
+            f"result={llm_analysis is not None} | "
+            f"has_best_moments={llm_analysis.get('best_moments') if llm_analysis else False} | "
+            f"time={llm_analysis_time:.1f}s"
+        )
+
+        if llm_analysis and llm_analysis.get("best_moments"):
+            best_moments_list = llm_analysis.get("best_moments", [])
+            
+            # Truncate to MAX_CLIPS_COUNT if LLM returned more
+            if len(best_moments_list) > settings.MAX_CLIPS_COUNT:
+                logger.info(
+                    f"LLM returned {len(best_moments_list)} moments, "
+                    f"truncating to {settings.MAX_CLIPS_COUNT}"
+                )
+                best_moments_list = best_moments_list[:settings.MAX_CLIPS_COUNT]
+
+            logger.info(
+                f"LLM analysis completed | "
+                f"segments_found={len(best_moments_list)} | "
+                f"time={llm_analysis_time:.1f}s"
             )
 
-        scoring_start = time.time()
-        best_moments = self.scoring_service.select_best_moments(
-            segments=segments,
-        )
-        scoring_time = time.time() - scoring_start
-
-        logger.info(
-            f"Selected {len(best_moments)} best moments for clipping | "
-            f"scoring_time={scoring_time:.1f}s",
-        )
+            best_moments = []
+            for moment in best_moments_list:
+                best_moments.append({
+                    "start": float(moment.get("start", 0)),
+                    "end": float(moment.get("end", 0)),
+                    "text": moment.get("reason", ""),  # Use reason as text description
+                    "score": float(moment.get("score", 0)),
+                    "reasoning": moment.get("reason", ""),
+                })
+        else:
+            logger.error(
+                f"LLM analysis failed or not available | "
+                f"time={llm_analysis_time:.1f}s | "
+                f"Video processing cannot continue without LLM analysis"
+            )
+            raise ValueError(
+                "LLM analysis is required but failed. "
+                "Please check LLM configuration and API keys."
+            )
 
         def process_single_clip(
             idx: int,
             moment: dict[str, Any],
         ) -> tuple[int, str]:
+            clip_duration = moment['end'] - moment['start']
+            max_duration = settings.CLIP_MAX_DURATION_SECONDS
+            min_duration = settings.CLIP_MIN_DURATION_SECONDS
+            
+            if clip_duration > max_duration:
+                logger.error(
+                    f"Clip {idx} duration ({clip_duration:.1f}s) exceeds max ({max_duration}s). "
+                    f"Skipping this clip."
+                )
+                return None, None
+            
+            if clip_duration < min_duration:
+                logger.error(
+                    f"Clip {idx} duration ({clip_duration:.1f}s) is below minimum ({min_duration}s). "
+                    f"Skipping this clip."
+                )
+                return None, None
+            
             logger.info(
                 f"Processing clip {idx}/{len(best_moments)} | "
-                f"start={moment['start']:.2f}s | end={moment['end']:.2f}s",
+                f"start={moment['start']:.2f}s | end={moment['end']:.2f}s | "
+                f"duration={clip_duration:.2f}s",
             )
 
             output_dir = create_temp_dir()
-
-            srt_path = self.subtitles_service.generate_srt(
-                video_path=trimmed_path,
-                source_video_path=trimmed_path,
-                clip_start_time=moment["start"],
-                clip_end_time=moment["end"],
-            )
 
             clip_name = (
                 f"final_clip_{idx}_"
@@ -195,13 +265,33 @@ class VideoPipeline:
             )
             final_clip_path = output_dir / clip_name
 
-            cut_crop_and_burn_optimized(
-                input_path=trimmed_path,
-                output_path=str(final_clip_path),
+            if not MOVIEPY_AVAILABLE:
+                raise ImportError(
+                    "MoviePy is required for video processing with subtitles. "
+                    "Please install MoviePy: pip install moviepy"
+                )
+            
+            # Use trimmed_path for video, but pass original video path for cache lookup
+            # The cache is saved with the trimmed video name
+            success = create_clip_with_moviepy_subtitles(
+                video_path=trimmed_path,
                 start_time=moment["start"],
                 end_time=moment["end"],
-                srt_path=srt_path,
-            )
+                output_path=str(final_clip_path),
+                 add_subtitles=True,
+                 font_family="Arial",
+                 font_size=60,  # Increased from 50 for even better visibility
+                 font_color="#FFFF00", # Bright yellow for better visibility
+             )
+            
+            if not success:
+                logger.warning(
+                    f"Failed to create clip {idx} with MoviePy | "
+                    f"start={moment['start']:.2f}s | end={moment['end']:.2f}s. "
+                    f"Skipping this clip."
+                )
+                # Skip this clip instead of failing the entire task
+                return None, None
 
             logger.info(
                 f"Clip {idx}/{len(best_moments)} processed | "
@@ -235,7 +325,14 @@ class VideoPipeline:
             for future in as_completed(future_to_clip):
                 try:
                     clip_idx, clip_path = future.result()
-                    clip_paths_dict[clip_idx] = clip_path
+                    if clip_idx is not None and clip_path is not None:
+                        clip_paths_dict[clip_idx] = clip_path
+                    else:
+                        idx, moment = future_to_clip[future]
+                        logger.warning(
+                            f"Clip {idx} was skipped | "
+                            f"start={moment['start']:.2f}s | end={moment['end']:.2f}s"
+                        )
                 except Exception as e:
                     idx, moment = future_to_clip[future]
                     logger.error(
@@ -243,7 +340,8 @@ class VideoPipeline:
                         f"start={moment['start']:.2f}s | end={moment['end']:.2f}s | "
                         f"error={e}",
                     )
-                    raise
+                    # Don't raise - continue processing other clips
+                    # raise
 
         clips_time = time.time() - clips_start
         clip_paths = [clip_paths_dict[i] for i in sorted(clip_paths_dict.keys())]
@@ -254,12 +352,27 @@ class VideoPipeline:
             f"Optimized pipeline completed | clips_count={len(clip_paths)} | "
             f"total_time={total_time:.1f}s ({total_time/60:.1f}min) | "
             f"breakdown: trim={trim_time:.1f}s, transcribe={transcription_time:.1f}s "
-            f"({transcription_time/60:.1f}min), score={scoring_time:.1f}s, "
+            f"({transcription_time/60:.1f}min), llm={llm_analysis_time:.1f}s, "
             f"clips={clips_time:.1f}s",
         )
 
-        cache = get_transcription_cache()
-        cache.clear(video_path=trimmed_path)
-
         return clip_paths
+
+    def process_optimized(
+        self,
+        file_path: str,
+        user_id: Optional[int] = None,
+    ) -> list[str]:
+        """
+        Synchronous wrapper for async pipeline.
+        Maintains backward compatibility.
+
+        Args:
+            file_path: Path to input video file
+            user_id: Optional user ID for Flow integration
+
+        Returns:
+            List of paths to generated clip files
+        """
+        return asyncio.run(self.process_optimized_async(file_path, user_id))
 

@@ -6,6 +6,7 @@ Uses OpenAI API to analyze video content and find best moments.
 from typing import Any, Optional
 
 from openai import OpenAI
+from openai import RateLimitError, APIError
 
 from app.core.config import settings
 from app.core.logger import get_logger
@@ -23,9 +24,17 @@ class LLMAnalysisService:
         self.enabled = settings.USE_LLM_ANALYSIS and self.api_key is not None
         
         if self.enabled:
-            self.client = OpenAI(api_key=self.api_key)
-            self.model_name = getattr(settings, 'OPENAI_MODEL', 'gpt-4o-mini')
-            logger.info(f"LLM analysis enabled | provider=OpenAI | model={self.model_name}")
+            try:
+                # Initialize OpenAI client with api_key
+                # httpx==0.27.2 is compatible with openai>=1.40.0
+                self.client = OpenAI(api_key=self.api_key)
+                self.model_name = getattr(settings, 'OPENAI_MODEL', 'gpt-4o-mini')
+                logger.info(f"LLM analysis enabled | provider=OpenAI | model={self.model_name}")
+            except Exception as e:
+                logger.error(f"Failed to initialize OpenAI client | error={e}", exc_info=True)
+                self.client = None
+                self.model_name = None
+                self.enabled = False
         else:
             self.client = None
             self.model_name = None
@@ -50,6 +59,14 @@ class LLMAnalysisService:
             Analysis result with best moments and scores, or None if disabled
         """
         if not self.enabled:
+            logger.warning(
+                f"LLM analysis is disabled | "
+                f"enabled={self.enabled} | client={self.client is not None}"
+            )
+            return None
+        
+        if self.client is None:
+            logger.error("LLM client is None, cannot analyze transcription")
             return None
         
         try:
@@ -72,16 +89,49 @@ class LLMAnalysisService:
             )
             
             # Call OpenAI API
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    },
-                ],
-                temperature=0.3,
-            )
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": prompt,
+                        },
+                    ],
+                    temperature=0.3,
+                    response_format={"type": "json_object"},
+                )
+            except RateLimitError as rate_error:
+                # Handle rate limit / quota errors
+                error_body = getattr(rate_error, 'body', {})
+                error_code = error_body.get('error', {}).get('code', '')
+                
+                if error_code == 'insufficient_quota':
+                    logger.error(
+                        f"OpenAI API quota exceeded | "
+                        f"Please check your OpenAI account billing and add credits. "
+                        f"Error: {rate_error}"
+                    )
+                    raise ValueError(
+                        "OpenAI API quota exceeded. Please check your account billing at "
+                        "https://platform.openai.com/account/billing and add credits."
+                    ) from rate_error
+                else:
+                    logger.error(f"OpenAI API rate limit error | Error: {rate_error}")
+                    raise ValueError(
+                        f"OpenAI API rate limit exceeded. Please try again later. Error: {rate_error}"
+                    ) from rate_error
+            except APIError as api_error:
+                # Handle other API errors
+                error_str = str(api_error)
+                if "invalid_api_key" in error_str or "401" in error_str:
+                    logger.error(f"OpenAI API key is invalid | Error: {api_error}")
+                    raise ValueError(
+                        "OpenAI API key is invalid. Please check your OPENAI_API_KEY in .env file."
+                    ) from api_error
+                else:
+                    logger.error(f"OpenAI API error | Error: {api_error}")
+                    raise ValueError(f"OpenAI API error: {api_error}") from api_error
             llm_api_time = time.time() - llm_start
             
             # Parse response
@@ -164,7 +214,10 @@ class LLMAnalysisService:
         Returns:
             Analysis prompt
         """
-        return f"""Analyze this video transcription and identify the 3-5 best moments for creating short clips (20-60 seconds each).
+        min_duration = settings.CLIP_MIN_DURATION_SECONDS
+        max_duration = settings.CLIP_MAX_DURATION_SECONDS
+        max_clips = settings.MAX_CLIPS_COUNT
+        return f"""Analyze this video transcription and identify the {max_clips} best moments for creating short clips (between {min_duration}-{max_duration} seconds each).
 
 Video duration: {total_duration/60:.1f} minutes
 
@@ -180,6 +233,10 @@ Your task:
    - Clear conclusions or takeaways
 3. Prioritize moments from the beginning (first 20%) and end (last 20%) of the video
 4. Ensure moments are diverse and cover different topics
+5. CRITICAL: Ensure that the selected clip durations are strictly between {min_duration} and {max_duration} seconds. 
+   - Each clip MUST be at least {min_duration} seconds long.
+   - Each clip MUST NOT exceed {max_duration} seconds.
+6. CRITICAL: Select exactly {max_clips} best moments if possible, but no more than {max_clips}.
 
 For each moment, provide:
 - Start time (in seconds)

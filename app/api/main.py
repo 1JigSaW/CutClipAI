@@ -50,8 +50,14 @@ def create_app(
     @application.on_event("startup")
     def startup_event():
         logger.info("Starting FastAPI application")
-        init_db()
-        logger.info("Database initialized")
+        try:
+            init_db()
+            logger.info("Database initialized")
+        except Exception as e:
+            logger.warning(
+                f"Database initialization failed | error={e} | "
+                f"API will continue but database features may not work"
+            )
 
     application.include_router(router=video.router)
     application.include_router(router=billing.router)

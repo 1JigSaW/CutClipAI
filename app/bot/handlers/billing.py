@@ -29,16 +29,27 @@ async def handle_check_balance(
     Args:
         callback: Callback query object
     """
+    if not callback.message or not callback.from_user:
+        return
+
     user_id = callback.from_user.id
 
-    logger.info(f"User checking balance | user_id={user_id}")
+    logger.info(
+        f"User checking balance | user_id={user_id}",
+    )
 
-    balance = wallet_service.get_balance(user_id=user_id)
+    balance = wallet_service.get_balance(
+        user_id=user_id,
+    )
 
-    logger.debug(f"Balance retrieved | user_id={user_id} | balance={balance}")
+    logger.debug(
+        f"Balance retrieved | user_id={user_id} | balance={balance}",
+    )
 
     await callback.message.answer(
-        text=BALANCE_MESSAGE.format(balance=balance),
+        text=BALANCE_MESSAGE.format(
+            balance=balance,
+        ),
         reply_markup=get_balance_keyboard(),
     )
 
@@ -55,6 +66,9 @@ async def handle_buy_coins_menu(
     Args:
         callback: Callback query object
     """
+    if not callback.message:
+        return
+
     await callback.message.answer(
         text=BUY_COINS_MESSAGE,
         reply_markup=get_buy_coins_keyboard(),
@@ -73,9 +87,16 @@ async def handle_buy_coins(
     Args:
         callback: Callback query object
     """
+    if not callback.message or not callback.from_user:
+        return
+
     user_id = callback.from_user.id
-    amount_str = callback.data.split(":")[1]
-    amount = int(amount_str)
+    amount_str = callback.data.split(
+        ":",
+    )[1]
+    amount = int(
+        amount_str,
+    )
 
     logger.info(
         f"User buying coins | user_id={user_id} | amount={amount}",

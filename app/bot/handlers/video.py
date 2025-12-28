@@ -18,6 +18,11 @@ from app.bot.texts.messages import (
 )
 from app.core.config import settings
 from app.core.logger import get_logger, log_error
+from app.services.billing.wallet import WalletService
+
+logger = get_logger(__name__)
+router = Router()
+wallet_service = WalletService()
 from app.services.storage.s3 import S3Service
 from app.utils.billing.validators import check_balance_for_video_processing
 from app.utils.video.google_drive import (
@@ -101,7 +106,7 @@ async def process_video_file(
         )
         await message.answer(
             text=NO_COINS_MESSAGE.format(
-                required=required_cost,
+                required=settings.MAX_CLIPS_COUNT,
                 balance=balance,
             ),
             reply_markup=get_buy_coins_keyboard(),
@@ -141,7 +146,10 @@ async def process_video_file(
                 f"Will try to send file anyway",
             )
 
-        with open(local_path, "rb") as video_file:
+        with open(
+            local_path,
+            "rb",
+        ) as video_file:
             logger.debug(
                 f"Sending file to API | user_id={user_id} | "
                 f"file_name={file_name} | file_size={file_size} | "
@@ -151,8 +159,16 @@ async def process_video_file(
             try:
                 response = await client.post(
                     url=f"{settings.API_BASE_URL}/video/process",
-                    data={"user_id": user_id},
-                    files={"file": (file_name, video_file, "video/mp4")},
+                    data={
+                        "user_id": user_id,
+                    },
+                    files={
+                        "file": (
+                            file_name,
+                            video_file,
+                            "video/mp4",
+                        ),
+                    },
                 )
             except httpx.ConnectError as e:
                 logger.error(
@@ -217,7 +233,9 @@ async def process_video_file(
                 f"Failed to start video processing | user_id={user_id} | "
                 f"status_code={response.status_code} | error={error_detail}",
             )
-            await message.answer(text=ERROR_MESSAGE)
+            await message.answer(
+                text=ERROR_MESSAGE,
+            )
             return
 
         task_data = response.json()
@@ -227,7 +245,11 @@ async def process_video_file(
             f"Video processing task created | user_id={user_id} | task_id={task_id}",
         )
 
-        await message.answer(text=PROCESSING_MESSAGE)
+        await message.answer(
+            text=PROCESSING_MESSAGE.format(
+                balance=balance - settings.MAX_CLIPS_COUNT,
+            ),
+        )
 
         result = await poll_task_status(
             client=client,
@@ -238,11 +260,16 @@ async def process_video_file(
             logger.error(
                 f"Video processing failed or timed out | user_id={user_id} | task_id={task_id}",
             )
-            await message.answer(text=ERROR_MESSAGE)
+            await message.answer(
+                text=ERROR_MESSAGE,
+            )
             return
 
         if result.get("status") == "no_coins":
-            clips_count = result.get("clips_count", 0)
+            clips_count = result.get(
+                "clips_count",
+                0,
+            )
             logger.warning(
                 f"Insufficient balance for video processing | user_id={user_id} | "
                 f"required_clips={clips_count}",
@@ -254,7 +281,10 @@ async def process_video_file(
             balance = 0
             if balance_response.status_code == 200:
                 balance_data = balance_response.json()
-                balance = balance_data.get("balance", 0)
+                balance = balance_data.get(
+                    "balance",
+                    0,
+                )
 
             await message.answer(
                 text=NO_COINS_MESSAGE.format(
@@ -266,7 +296,10 @@ async def process_video_file(
             return
 
         if result.get("status") == "success":
-            clip_s3_keys = result.get("clip_s3_keys", [])
+            clip_s3_keys = result.get(
+                "clip_s3_keys",
+                [],
+            )
             clips_count = len(clip_s3_keys)
 
             logger.info(
@@ -274,8 +307,16 @@ async def process_video_file(
                 f"clips_count={clips_count} | task_id={task_id}",
             )
 
+            # Get final balance after processing
+            final_balance = wallet_service.get_balance(
+                user_id=user_id,
+            )
+
             await message.answer(
-                text=CLIPS_READY_MESSAGE.format(clips_count=clips_count),
+                text=CLIPS_READY_MESSAGE.format(
+                    clips_count=clips_count,
+                    balance=final_balance,
+                ),
             )
 
             s3_service = S3Service()
@@ -338,7 +379,9 @@ async def process_video_file(
                 f"Video processing returned unknown status | user_id={user_id} | "
                 f"status={result.get('status')} | task_id={task_id}",
             )
-            await message.answer(text=ERROR_MESSAGE)
+            await message.answer(
+                text=ERROR_MESSAGE,
+            )
 
 
 @router.message(F.video)
@@ -351,8 +394,11 @@ async def handle_video(
     Args:
         message: Telegram message with video
     """
+    if not message.from_user or not message.video:
+        return
+
     user_id = message.from_user.id
-    file_id = message.video.file_id if message.video else None
+    file_id = message.video.file_id
 
     logger.info(
         f"Received video file | user_id={user_id} | file_id={file_id}",
@@ -362,12 +408,12 @@ async def handle_video(
 
     try:
         file = await message.bot.get_file(
-            file_id=message.video.file_id,
+            file_id=file_id,
         )
 
         file_path = Path(file.file_path)
         file_extension = file_path.suffix
-        file_size = message.video.file_size if message.video else None
+        file_size = message.video.file_size
 
         logger.info(
             f"Downloading video file | user_id={user_id} | "
@@ -398,11 +444,15 @@ async def handle_video(
             error=e,
             context={"file_id": file_id},
         )
-        await message.answer(text=ERROR_MESSAGE)
+        await message.answer(
+            text=ERROR_MESSAGE,
+        )
     finally:
         if local_path and os.path.exists(local_path):
             os.unlink(local_path)
-            logger.debug(f"Cleaned up temp file | path={local_path}")
+            logger.debug(
+                f"Cleaned up temp file | path={local_path}",
+            )
 
 
 @router.message(F.text)
@@ -432,21 +482,27 @@ async def handle_text_message(
     local_path = None
 
     try:
-        file_id = extract_file_id_from_url(url=text)
+        file_id = extract_file_id_from_url(
+            url=text,
+        )
 
         if not file_id:
             logger.warning(
                 f"Failed to extract file ID from Google Drive URL | user_id={user_id} | "
                 f"url={text[:50]}...",
             )
-            await message.answer(text=INVALID_GOOGLE_DRIVE_LINK_MESSAGE)
+            await message.answer(
+                text=INVALID_GOOGLE_DRIVE_LINK_MESSAGE,
+            )
             return
 
         logger.info(
             f"Extracted file ID from Google Drive URL | user_id={user_id} | file_id={file_id}",
         )
 
-        download_url = get_download_url_via_api(file_id=file_id)
+        download_url = get_download_url_via_api(
+            file_id=file_id,
+        )
 
         if not download_url:
             logger.error(
@@ -468,14 +524,16 @@ async def handle_text_message(
             )
             await message.answer(
                 text=NO_COINS_MESSAGE.format(
-                    required=required_cost,
+                    required=settings.MAX_CLIPS_COUNT,
                     balance=balance,
                 ),
                 reply_markup=get_buy_coins_keyboard(),
             )
             return
 
-        await message.answer(text=DOWNLOADING_MESSAGE)
+        await message.answer(
+            text=DOWNLOADING_MESSAGE,
+        )
 
         local_path = f"/tmp/{user_id}_{os.urandom(8).hex()}.mp4"
 
@@ -489,18 +547,29 @@ async def handle_text_message(
             timeout=600.0,
             follow_redirects=True,
         ) as client:
-            async with client.stream("GET", download_url) as response:
+            async with client.stream(
+                method="GET",
+                url=download_url,
+            ) as response:
                 if response.status_code != 200:
                     logger.error(
                         f"Failed to download from Google Drive API | user_id={user_id} | "
                         f"file_id={file_id} | status_code={response.status_code}",
                     )
-                    await message.answer(text=ERROR_MESSAGE)
+                    await message.answer(
+                        text=ERROR_MESSAGE,
+                    )
                     return
 
                 buffer_size = 1024 * 256
-                with open(local_path, "wb", buffering=buffer_size) as f:
-                    async for chunk in response.aiter_bytes(chunk_size=buffer_size):
+                with open(
+                    local_path,
+                    "wb",
+                    buffering=buffer_size,
+                ) as f:
+                    async for chunk in response.aiter_bytes(
+                        chunk_size=buffer_size,
+                    ):
                         f.write(chunk)
                         downloaded_bytes += len(chunk)
 
@@ -522,7 +591,9 @@ async def handle_text_message(
             error=e,
             context={"url": text[:50]},
         )
-        await message.answer(text=ERROR_MESSAGE)
+        await message.answer(
+            text=ERROR_MESSAGE,
+        )
     except Exception as e:
         log_error(
             logger=logger,
@@ -530,9 +601,13 @@ async def handle_text_message(
             error=e,
             context={"url": text[:50]},
         )
-        await message.answer(text=ERROR_MESSAGE)
+        await message.answer(
+            text=ERROR_MESSAGE,
+        )
     finally:
         if local_path and os.path.exists(local_path):
             os.unlink(local_path)
-            logger.debug(f"Cleaned up temp file | path={local_path}")
+            logger.debug(
+                f"Cleaned up temp file | path={local_path}",
+            )
 

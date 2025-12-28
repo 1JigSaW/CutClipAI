@@ -1,6 +1,8 @@
 import asyncio
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.bot.handlers import billing, start, video
@@ -23,7 +25,12 @@ async def main() -> None:
             "Please set it in .env file or environment variables."
         )
 
-    bot = Bot(token=token.strip())
+    bot = Bot(
+        token=token.strip(),
+        default=DefaultBotProperties(
+            parse_mode=ParseMode.MARKDOWN,
+        ),
+    )
     storage = MemoryStorage()
     dp = Dispatcher(
         storage=storage,
