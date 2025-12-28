@@ -375,29 +375,48 @@ async def process_video_file(
                 )
 
                 video_input = FSInputFile(path=temp_clip_path)
-                await message.answer_video(
-                    video=video_input,
-                )
-
-                logger.debug(
-                    f"Sent clip {idx}/{clips_count} to user | user_id={user_id}",
-                )
+                
+                # Retry sending video up to 3 times on network errors
+                for attempt in range(3):
+                    try:
+                        await message.answer_video(
+                            video=video_input,
+                        )
+                        logger.debug(
+                            f"Sent clip {idx}/{clips_count} to user | user_id={user_id}",
+                        )
+                        break
+                    except Exception as e:
+                        if attempt == 2:
+                            logger.error(
+                                f"Failed to send clip {idx} after 3 attempts | "
+                                f"user_id={user_id} | error={e}"
+                            )
+                            raise
+                        logger.warning(
+                            f"Attempt {attempt+1} to send clip failed | "
+                            f"user_id={user_id} | error={e}. Retrying..."
+                        )
+                        await asyncio.sleep(2)
 
                 return temp_clip_path
 
             try:
-                tasks = [
-                    download_and_send_clip(
-                        idx=idx,
-                        clip_s3_key=clip_s3_key,
-                    )
-                    for idx, clip_s3_key in enumerate(clip_s3_keys, 1)
-                ]
-                
-                temp_clip_files = await asyncio.gather(*tasks)
+                # Process clips one by one to avoid overwhelming Telegram API and network
+                temp_clip_files = []
+                for idx, clip_s3_key in enumerate(clip_s3_keys, 1):
+                    try:
+                        path = await download_and_send_clip(
+                            idx=idx,
+                            clip_s3_key=clip_s3_key,
+                        )
+                        temp_clip_files.append(path)
+                    except Exception as e:
+                        logger.error(f"Failed to send clip {idx} | error={e}")
+                        # Continue with other clips even if one fails
             finally:
                 for temp_clip_path in temp_clip_files:
-                    if os.path.exists(temp_clip_path):
+                    if temp_clip_path and os.path.exists(temp_clip_path):
                         os.unlink(temp_clip_path)
                         logger.debug(f"Cleaned up clip file | path={temp_clip_path}")
         else:

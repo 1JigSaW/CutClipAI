@@ -26,6 +26,16 @@ router = APIRouter(
 )
 
 
+class ProcessVideoResponse(BaseModel):
+    task_id: str
+
+
+class VideoStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    result: dict | None = None
+
+
 def verify_api_key(
     x_api_key: str = Header(None),
 ):
