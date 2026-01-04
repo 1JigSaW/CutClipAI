@@ -11,8 +11,10 @@ from app.bot.keyboards.inline import get_buy_coins_keyboard
 from app.bot.texts.messages import (
     CLIPS_READY_MESSAGE,
     DOWNLOADING_MESSAGE,
+    DOWNLOADING_YOUTUBE_MESSAGE,
     ERROR_MESSAGE,
     INVALID_GOOGLE_DRIVE_LINK_MESSAGE,
+    INVALID_YOUTUBE_LINK_MESSAGE,
     NO_COINS_MESSAGE,
     PROCESSING_MESSAGE,
 )
@@ -29,6 +31,10 @@ from app.utils.video.google_drive import (
     extract_file_id_from_url,
     get_download_url_via_api,
     is_google_drive_url,
+)
+from app.utils.video.youtube import (
+    is_youtube_url,
+    download_youtube_video,
 )
 
 logger = get_logger(__name__)
@@ -505,7 +511,7 @@ async def handle_text_message(
     message: Message,
 ) -> None:
     """
-    Handle text message - check if it's a Google Drive link.
+    Handle text message - check if it's a Google Drive or YouTube link.
 
     Args:
         message: Telegram message object
@@ -514,15 +520,64 @@ async def handle_text_message(
         return
 
     text = message.text.strip()
-
-    if not is_google_drive_url(url=text):
-        return
-
     user_id = message.from_user.id
 
-    logger.info(
-        f"Received Google Drive link | user_id={user_id} | url={text[:50]}...",
-    )
+    # Handle YouTube Links
+    if is_youtube_url(url=text):
+        logger.info(
+            f"Received YouTube link | user_id={user_id} | url={text[:50]}...",
+        )
+        
+        has_sufficient_balance, balance, required_cost = check_balance_for_video_processing(
+            user_id=user_id,
+        )
+        
+        if not has_sufficient_balance:
+            await message.answer(
+                text=NO_COINS_MESSAGE.format(
+                    required=settings.MAX_CLIPS_COUNT,
+                    balance=balance,
+                ),
+                reply_markup=get_buy_coins_keyboard(),
+            )
+            return
+
+        await message.answer(text=DOWNLOADING_YOUTUBE_MESSAGE)
+        
+        local_path = f"/tmp/yt_{user_id}_{os.urandom(4).hex()}.mp4"
+        
+        try:
+            success = await download_youtube_video(
+                url=text,
+                output_path=local_path,
+            )
+            
+            if not success:
+                await message.answer(text=INVALID_YOUTUBE_LINK_MESSAGE)
+                return
+
+            await process_video_file(
+                local_path=local_path,
+                user_id=user_id,
+                message=message,
+            )
+        except Exception as e:
+            log_error(
+                logger=logger,
+                message=f"Failed to process YouTube link | user_id={user_id}",
+                error=e,
+            )
+            await message.answer(text=ERROR_MESSAGE)
+        finally:
+            if local_path and os.path.exists(local_path):
+                os.unlink(local_path)
+        return
+
+    # Handle Google Drive Links
+    if is_google_drive_url(url=text):
+        logger.info(
+            f"Received Google Drive link | user_id={user_id} | url={text[:50]}...",
+        )
 
     local_path = None
 

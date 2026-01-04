@@ -236,7 +236,7 @@ Your task:
 5. CRITICAL: Ensure that the selected clip durations are strictly between {min_duration} and {max_duration} seconds. 
    - Each clip MUST be at least {min_duration} seconds long.
    - Each clip MUST NOT exceed {max_duration} seconds.
-6. CRITICAL: Select exactly {max_clips} best moments if possible, but no more than {max_clips}.
+6. CRITICAL: You MUST select exactly 6 best moments. Each clip MUST be between 15 and 45 seconds. If the video is long enough, always aim for 6 clips. Each moment must be unique.
 
 For each moment, provide:
 - Start time (in seconds)

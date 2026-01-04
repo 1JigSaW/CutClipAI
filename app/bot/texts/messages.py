@@ -12,7 +12,7 @@ I'm your AI-powered assistant for creating engaging video clips with automatic s
 • Select the most engaging moments
 • Format videos in 9:16 aspect ratio
 
-Ready to start? Send me a video file or a Google Drive link! 🚀
+Ready to start? Send me a video file, a Google Drive link, or a YouTube link! 🚀
 """
 
 BALANCE_MESSAGE = """
@@ -26,7 +26,7 @@ Need more? Use the buttons below! 👇
 VIDEO_UPLOAD_INSTRUCTIONS_MESSAGE = """
 📤 *Ready to create clips?*
 
-Send me a video file or tap the button below to get started!
+Send me a video file, a Google Drive link, or a YouTube link! 🎬
 
 I'll automatically:
 1. Analyze your video
@@ -102,13 +102,15 @@ VIDEO_REQUIREMENTS_MESSAGE = """
 💰 *Cost:* 1 coin per clip
 
 💾 *Direct Upload:* Up to 4 GB (Telegram limit)
-🔗 *For larger files:* Please use a **Google Drive link**
+🔗 *Links:* **Google Drive** or **YouTube**
 
 *How to use Google Drive:*
 1️⃣ Upload your video to [Google Drive](https://drive.google.com/)
 2️⃣ Right-click the file ➔ **Share** ➔ **Share**
 3️⃣ Under "General access" select **"Anyone with the link"**
 4️⃣ Click **"Copy link"** and paste it here!
+
+*YouTube:* Just paste the link! 📺
 
 💰 *Your Balance:* `{balance}` coins
 Send me a video file or link to start! 📥
@@ -120,10 +122,22 @@ DOWNLOADING_MESSAGE = """
 This may take a few minutes depending on the file size.
 """
 
+DOWNLOADING_YOUTUBE_MESSAGE = """
+⬇️ *Downloading video from YouTube...*
+
+I'm grabbing the best quality for you! 📺
+"""
+
 INVALID_GOOGLE_DRIVE_LINK_MESSAGE = """
 ❌ *Invalid Google Drive link!*
 
 Please send a valid sharing link.
 Make sure the file access is set to **"Anyone with the link"**.
+"""
+
+INVALID_YOUTUBE_LINK_MESSAGE = """
+❌ *Invalid YouTube link!*
+
+Please check the link and try again.
 """
 

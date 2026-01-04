@@ -83,6 +83,7 @@ async def buy_coins(
     new_balance = wallet_service.add_coins(
         user_id=request.user_id,
         amount=request.amount,
+        description="Coins purchase via API",
     )
 
     return BuyCoinsResponse(

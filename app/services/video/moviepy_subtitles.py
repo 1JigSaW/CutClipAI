@@ -410,62 +410,40 @@ def create_clip_with_moviepy_subtitles(
         except AttributeError:
             clip = video.subclip(start_time, end_time)
 
-        original_width, original_height = video.size
-        
-        target_ratio = 9/16
-        
-        if original_width / original_height > target_ratio:
-            new_width = int(original_height * target_ratio)
-            new_height = original_height
-        else:
-            new_width = original_width
-            new_height = int(original_width / target_ratio)
-
-        def round_to_even(value: int) -> int:
-            return value - (value % 2)
-
-        new_width = round_to_even(new_width)
-        new_height = round_to_even(new_height)
-
-        x_offset = (original_width - new_width) // 2
-        y_offset = (original_height - new_height) // 2
-        x_offset = round_to_even(x_offset)
-        y_offset = round_to_even(y_offset)
-
-        # Reverted to original working logic
-        try:
-            cropped_clip = clip.with_crop(
-                x1=x_offset,
-                y1=y_offset,
-                x2=x_offset + new_width,
-                y2=y_offset + new_height
-            )
-        except AttributeError:
-            # Fallback for older MoviePy versions
-            try:
-                cropped_clip = clip.crop(
-                    x1=x_offset,
-                    y1=y_offset,
-                    x2=x_offset + new_width,
-                    y2=y_offset + new_height
-                )
-            except AttributeError:
-                cropped_clip = clip.cropped(
-                    x1=x_offset,
-                    y1=y_offset,
-                    x2=x_offset + new_width,
-                    y2=y_offset + new_height
-                )
-        
-        target_width = 1080
+        # Robust 9:16 transformation without stretching
+        # Step 1: Resize height to 1920, keeping aspect ratio
         target_height = 1920
+        target_width = 1080
         
-        if new_width != target_width or new_height != target_height:
+        try:
+            # Try MoviePy 2.x
+            rescaled_clip = clip.resized(height=target_height)
+        except AttributeError:
+            # Fallback for MoviePy 1.x
+            rescaled_clip = clip.resize(height=target_height)
+            
+        # Step 2: Crop the width to exactly 1080 from the center
+        current_w, current_h = rescaled_clip.size
+        x1 = max(0, int((current_w - target_width) / 2))
+        y1 = 0
+        x2 = min(current_w, x1 + target_width)
+        y2 = target_height
+        
+        try:
+            # Try universal crop method
+            cropped_clip = rescaled_clip.crop(x1=x1, y1=y1, x2=x2, y2=y2)
+        except AttributeError:
+            # Fallback for some versions
             try:
-                # MoviePy 2.x resized takes (width, height)
+                cropped_clip = rescaled_clip.with_crop(x1=x1, y1=y1, x2=x2, y2=y2)
+            except AttributeError:
+                cropped_clip = rescaled_clip.cropped(x1=x1, y1=y1, x2=x2, y2=y2)
+
+        # Final safety check: if we somehow don't have exactly 1080x1920, force it
+        if cropped_clip.size != (target_width, target_height):
+            try:
                 cropped_clip = cropped_clip.resized((target_width, target_height))
             except AttributeError:
-                # Fallback for MoviePy 1.x
                 cropped_clip = cropped_clip.resize(new_size=(target_width, target_height))
 
         final_clips = [cropped_clip]

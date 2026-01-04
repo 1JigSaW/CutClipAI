@@ -49,9 +49,9 @@ class S3Service:
         )
         
         self.transfer_config = TransferConfig(
-            multipart_threshold=1024 * 25,
+            multipart_threshold=1024 * 1024 * 8,  # 8MB
             max_concurrency=max_concurrency,
-            multipart_chunksize=1024 * 25,
+            multipart_chunksize=1024 * 1024 * 8,  # 8MB
             use_threads=True,
         )
 

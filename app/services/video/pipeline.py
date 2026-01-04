@@ -195,11 +195,13 @@ class VideoPipeline:
         if llm_analysis and llm_analysis.get("best_moments"):
             best_moments_list = llm_analysis.get("best_moments", [])
             
+            # Log what we got
+            logger.info(f"LLM returned {len(best_moments_list)} moments. Max allowed: {settings.MAX_CLIPS_COUNT}")
+
             # Truncate to MAX_CLIPS_COUNT if LLM returned more
             if len(best_moments_list) > settings.MAX_CLIPS_COUNT:
                 logger.info(
-                    f"LLM returned {len(best_moments_list)} moments, "
-                    f"truncating to {settings.MAX_CLIPS_COUNT}"
+                    f"Truncating {len(best_moments_list)} moments to {settings.MAX_CLIPS_COUNT}"
                 )
                 best_moments_list = best_moments_list[:settings.MAX_CLIPS_COUNT]
 

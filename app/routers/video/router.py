@@ -89,6 +89,7 @@ async def process_video(
     success = wallet_service.charge_coins(
         user_id=user_id,
         amount=required_cost,
+        description=f"Pre-charge for video: {file.filename}",
     )
     
     if not success:

@@ -294,20 +294,19 @@ def crop_9_16(
         input_path=input_path,
         output_path=output_path,
     )
-    # Smart crop: only crop if video is wider than 9:16
-    # If video is already 9:16 or narrower, don't crop (use full width)
-    # Formula: crop=min(iw, ih*9/16):ih:(iw-min(iw,ih*9/16))/2:0
+    # Robust crop to 9:16: Scale to cover target, then crop center
+    # This prevents stretching and always fills the 1080x1920 frame
     cmd.extend([
-            "-vf",
-        f"crop=min(iw,ih*9/16):ih:(iw-min(iw,ih*9/16))/2:0,{scale_filter}",
+        "-vf",
+        "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1",
         "-c:v",
         video_codec,
         "-preset",
         preset,
-            "-y",
-            output_path,
+        "-y",
+        output_path,
     ])
-    
+
     if _get_gpu_encoding_available():
         cmd.extend(["-rc", "vbr", "-cq", str(quality), "-b:v", "0"])
     
@@ -413,11 +412,14 @@ def cut_crop_and_burn_optimized(
     else:
         logger.debug("No subtitle path provided, processing without subtitles")
     
-    # Build video filter - only add subtitles if file exists and is not empty
+    # Robust 9:16 transformation:
+    # 1. Scale to cover 1080x1920 (no stretching)
+    # 2. Crop center 1080x1920
+    # 3. Force square pixels
     base_filter = (
-        f"crop=min(iw\\,ih*9/16):ih:(iw-min(iw\\,ih*9/16))/2:0,"
-        f"scale=1080:1920:force_original_aspect_ratio=decrease,"
-        f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black"
+        "scale=1080:1920:force_original_aspect_ratio=increase,"
+        "crop=1080:1920,"
+        "setsar=1"
     )
     
     if use_subtitles:

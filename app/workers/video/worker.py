@@ -10,6 +10,7 @@ from celery import group
 from app.core.celery_app import celery_app
 from app.core.config import settings
 from app.core.logger import get_logger, log_error
+from app.models.transaction.transaction import TransactionType
 from app.services.billing.pricing import PricingService
 from app.services.billing.wallet import WalletService
 from app.services.storage.s3 import S3Service
@@ -119,6 +120,8 @@ def process_video_task(
             wallet_service.add_coins(
                 user_id=user_id,
                 amount=refund_amount,
+                description=f"Refund for video task: {s3_key}",
+                transaction_type=TransactionType.REFUND,
             )
 
         logger.info(
@@ -168,50 +171,10 @@ def process_video_task(
         wallet_service.add_coins(
             user_id=user_id,
             amount=reserved_cost,
+            description=f"Error refund for video task: {s3_key}",
+            transaction_type=TransactionType.REFUND,
         )
         
-        return {
-            "status": "error",
-            "message": str(e),
-        }
-
-        clip_s3_keys = []
-        for idx, clip_path in enumerate(clip_paths, 1):
-            logger.debug(
-                f"Uploading clip {idx}/{clips_count} to S3 | user_id={user_id} | "
-                f"clip_path={clip_path}",
-            )
-
-            clip_s3_key = s3_service.upload_file(
-                file_path=clip_path,
-                prefix=f"videos/output/{user_id}",
-            )
-            clip_s3_keys.append(clip_s3_key)
-            temp_files_to_cleanup.append(clip_path)
-
-            logger.debug(
-                f"Clip {idx}/{clips_count} uploaded to S3 | user_id={user_id} | "
-                f"s3_key={clip_s3_key}",
-            )
-
-        logger.info(
-            f"Video processing task completed successfully | user_id={user_id} | "
-            f"clips_count={clips_count} | clip_s3_keys={len(clip_s3_keys)}",
-        )
-
-        return {
-            "status": "success",
-            "clips_count": clips_count,
-            "clip_s3_keys": clip_s3_keys,
-        }
-
-    except Exception as e:
-        log_error(
-            logger=logger,
-            message=f"Video processing task failed | user_id={user_id}",
-            error=e,
-            context={"s3_key": s3_key},
-        )
         return {
             "status": "error",
             "message": str(e),

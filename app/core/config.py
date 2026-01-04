@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql://cutclipai:cutclipai@localhost:5432/cutclipai"
+    DATABASE_URL: str = "postgresql://cutclipai:cutclipai@127.0.0.1:5444/cutclipai"
 
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
@@ -38,8 +38,8 @@ class Settings(BaseSettings):
     S3_MAX_CONCURRENCY: int = 5
 
     VIDEO_MAX_DURATION_SECONDS: int = 1800
-    CLIP_MIN_DURATION_SECONDS: int = 20
-    CLIP_MAX_DURATION_SECONDS: int = 30
+    CLIP_MIN_DURATION_SECONDS: int = 15
+    CLIP_MAX_DURATION_SECONDS: int = 45
     MAX_CLIPS_COUNT: int = 6
     CLIP_PROCESSING_MAX_WORKERS: int = 3
     
@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     SCORING_WEIGHT_HOOK: float = 3.0  # Bonus for hook patterns (questions, statements)
     SCORING_WEIGHT_LLM: float = 5.0  # Bonus from LLM analysis (if enabled)
 
-    START_BALANCE_COINS: int = 5
+    START_BALANCE_COINS: int = 6
     COINS_PER_CLIP: int = 1
 
     AWS_ACCESS_KEY_ID: Optional[str] = None
