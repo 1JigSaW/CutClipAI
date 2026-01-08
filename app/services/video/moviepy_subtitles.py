@@ -1,12 +1,13 @@
 """
 MoviePy-based subtitle generation service.
-Uses the same approach as SupoClip - creates TextClip objects and composites them.
+Exact implementation from SupoClip for consistency.
 """
 
 import json
 import logging
+import os
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, Tuple
 
 try:
     from moviepy import VideoFileClip, CompositeVideoClip, TextClip
@@ -21,6 +22,15 @@ except ImportError:
         CompositeVideoClip = None
         TextClip = None
 
+try:
+    import cv2
+    import numpy as np
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    cv2 = None
+    np = None
+
 from app.core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -32,126 +42,490 @@ class VideoProcessor:
     def __init__(
         self,
         font_family: str = "Arial",
-        font_size: int = 36,
-        font_color: str = "#FFFFFF",
+        font_size: int = 24,
+        font_color: str = "#FFFFFF"
     ):
         self.font_family = font_family
         self.font_size = font_size
         self.font_color = font_color
         
-        # Search for a valid font on macOS
-        macos_fonts = [
-            "/Library/Fonts/Arial.ttf",
-            "/Library/Fonts/Arial Unicode.ttf",
-            "/System/Library/Fonts/Supplemental/Arial.ttf",
-            "/System/Library/Fonts/Helvetica.ttc",
-            "Arial",
-            "Helvetica"
-        ]
-        
-        self.font_path = "Arial" # Default
-        for font in macos_fonts:
-            if font.startswith("/") and Path(font).exists():
-                self.font_path = font
-                break
-        
-        logger.info(f"VideoProcessor initialized | font={self.font_path} | font_size={self.font_size}")
+        # Try to find font in CutClipAI fonts directory
+        fonts_dir = Path(__file__).parent.parent.parent.parent / "fonts"
+        if fonts_dir.exists():
+            font_path = fonts_dir / f"{font_family}.ttf"
+            if font_path.exists():
+                self.font_path = str(font_path)
+            else:
+                # Fallback to Arial (system font)
+                self.font_path = "Arial"
+                logger.warning(f"Font {font_family} not found, using Arial")
+        else:
+            # Use system font
+            self.font_path = "Arial"
+            logger.info("Fonts directory not found, using system Arial font")
+
+    def get_optimal_encoding_settings(
+        self,
+        target_quality: str = "high"
+    ) -> Dict[str, Any]:
+        """Get optimal encoding settings for different quality levels."""
+        settings = {
+            "high": {
+                "codec": "libx264",
+                "audio_codec": "aac",
+                "bitrate": "8000k",
+                "audio_bitrate": "256k",
+                "preset": "medium",
+                "ffmpeg_params": [
+                    "-crf", "20",
+                    "-pix_fmt", "yuv420p",
+                    "-profile:v", "main",
+                    "-level", "4.1"
+                ]
+            },
+            "medium": {
+                "codec": "libx264",
+                "audio_codec": "aac",
+                "bitrate": "4000k",
+                "audio_bitrate": "192k",
+                "preset": "fast",
+                "ffmpeg_params": ["-crf", "23", "-pix_fmt", "yuv420p"]
+            }
+        }
+        return settings.get(target_quality, settings["high"])
 
 
-def load_cached_transcript_data(video_path: Path) -> Optional[dict]:
+def round_to_even(value: int) -> int:
+    """Round integer to nearest even number for H.264 compatibility."""
+    return value - (value % 2)
+
+
+def filter_face_outliers(
+    face_centers: List[Tuple[int, int, int, float]]
+) -> List[Tuple[int, int, int, float]]:
+    """Remove face detections that are outliers (likely false positives)."""
+    if len(face_centers) < 3:
+        return face_centers
+
+    try:
+        if not CV2_AVAILABLE or np is None:
+            return face_centers
+
+        # Calculate median position
+        x_positions = [x for x, y, area, conf in face_centers]
+        y_positions = [y for x, y, area, conf in face_centers]
+
+        median_x = np.median(x_positions)
+        median_y = np.median(y_positions)
+
+        # Calculate standard deviation
+        std_x = np.std(x_positions)
+        std_y = np.std(y_positions)
+
+        # Filter out faces that are more than 2 standard deviations away
+        filtered_faces = []
+        for face in face_centers:
+            x, y, area, conf = face
+            if (abs(x - median_x) <= 2 * std_x and abs(y - median_y) <= 2 * std_y):
+                filtered_faces.append(face)
+
+        logger.info(
+            f"Filtered {len(face_centers)} -> {len(filtered_faces)} faces (removed outliers)"
+        )
+        return filtered_faces if filtered_faces else face_centers
+
+    except Exception as e:
+        logger.warning(f"Error filtering face outliers: {e}")
+        return face_centers
+
+
+def detect_faces_in_clip(
+    video_clip: VideoFileClip,
+    start_time: float,
+    end_time: float
+) -> List[Tuple[int, int, int, float]]:
+    """
+    Improved face detection using multiple methods and temporal consistency.
+    Returns list of (x, y, area, confidence) tuples.
+    """
+    if not CV2_AVAILABLE:
+        logger.warning("OpenCV not available, face detection disabled")
+        return []
+
+    face_centers = []
+
+    try:
+        # Try to use MediaPipe (most accurate)
+        mp_face_detection = None
+        try:
+            import mediapipe as mp
+            mp_face_detection = mp.solutions.face_detection.FaceDetection(
+                model_selection=0,
+                min_detection_confidence=0.5
+            )
+            logger.info("Using MediaPipe face detector")
+        except ImportError:
+            logger.info("MediaPipe not available, falling back to OpenCV")
+        except Exception as e:
+            logger.warning(f"MediaPipe face detector failed to initialize: {e}")
+
+        # Initialize OpenCV face detectors as fallback
+        haar_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        )
+
+        # Try to load DNN face detector (more accurate than Haar)
+        dnn_net = None
+        try:
+            prototxt_path = cv2.data.haarcascades.replace(
+                'haarcascades',
+                'opencv_face_detector.pbtxt'
+            )
+            model_path = cv2.data.haarcascades.replace(
+                'haarcascades',
+                'opencv_face_detector_uint8.pb'
+            )
+
+            if os.path.exists(prototxt_path) and os.path.exists(model_path):
+                dnn_net = cv2.dnn.readNetFromTensorflow(model_path, prototxt_path)
+                logger.info("OpenCV DNN face detector loaded as backup")
+            else:
+                logger.info("OpenCV DNN face detector not available")
+        except Exception:
+            logger.info("OpenCV DNN face detector failed to load")
+
+        # Sample more frames for better face detection (every 0.5 seconds)
+        duration = end_time - start_time
+        sample_interval = min(0.5, duration / 10)
+        sample_times = []
+
+        current_time = start_time
+        while current_time < end_time:
+            sample_times.append(current_time)
+            current_time += sample_interval
+
+        # Ensure we always sample the middle and end
+        if duration > 1.0:
+            middle_time = start_time + duration / 2
+            if middle_time not in sample_times:
+                sample_times.append(middle_time)
+
+        sample_times = [t for t in sample_times if t < end_time]
+        logger.info(f"Sampling {len(sample_times)} frames for face detection")
+
+        for sample_time in sample_times:
+            try:
+                frame = video_clip.get_frame(sample_time)
+                height, width = frame.shape[:2]
+                detected_faces = []
+
+                # Try MediaPipe first (most accurate)
+                if mp_face_detection is not None:
+                    try:
+                        results = mp_face_detection.process(frame)
+
+                        if results.detections:
+                            for detection in results.detections:
+                                bbox = detection.location_data.relative_bounding_box
+                                confidence = detection.score[0]
+
+                                x = int(bbox.xmin * width)
+                                y = int(bbox.ymin * height)
+                                w = int(bbox.width * width)
+                                h = int(bbox.height * height)
+
+                                if w > 30 and h > 30:
+                                    detected_faces.append((x, y, w, h, confidence))
+                    except Exception as e:
+                        logger.warning(
+                            f"MediaPipe detection failed for frame at {sample_time}s: {e}"
+                        )
+
+                # If MediaPipe didn't find faces, try DNN detector
+                if not detected_faces and dnn_net is not None:
+                    try:
+                        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                        blob = cv2.dnn.blobFromImage(
+                            frame_bgr,
+                            1.0,
+                            (300, 300),
+                            [104, 117, 123]
+                        )
+                        dnn_net.setInput(blob)
+                        detections = dnn_net.forward()
+
+                        for i in range(detections.shape[2]):
+                            confidence = detections[0, 0, i, 2]
+                            if confidence > 0.5:
+                                x1 = int(detections[0, 0, i, 3] * width)
+                                y1 = int(detections[0, 0, i, 4] * height)
+                                x2 = int(detections[0, 0, i, 5] * width)
+                                y2 = int(detections[0, 0, i, 6] * height)
+
+                                w = x2 - x1
+                                h = y2 - y1
+
+                                if w > 30 and h > 30:
+                                    detected_faces.append((x1, y1, w, h, confidence))
+                    except Exception as e:
+                        logger.warning(
+                            f"DNN detection failed for frame at {sample_time}s: {e}"
+                        )
+
+                # If still no faces found, use Haar cascade
+                if not detected_faces:
+                    try:
+                        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+
+                        faces = haar_cascade.detectMultiScale(
+                            gray,
+                            scaleFactor=1.05,
+                            minNeighbors=3,
+                            minSize=(40, 40),
+                            maxSize=(int(width*0.7), int(height*0.7))
+                        )
+
+                        for (x, y, w, h) in faces:
+                            face_area = w * h
+                            relative_size = face_area / (width * height)
+                            confidence = min(0.9, 0.3 + relative_size * 2)
+                            detected_faces.append((x, y, w, h, confidence))
+                    except Exception as e:
+                        logger.warning(
+                            f"Haar cascade detection failed for frame at {sample_time}s: {e}"
+                        )
+
+                # Process detected faces
+                for (x, y, w, h, confidence) in detected_faces:
+                    face_center_x = x + w // 2
+                    face_center_y = y + h // 2
+                    face_area = w * h
+
+                    # Filter out very small or very large faces
+                    frame_area = width * height
+                    relative_area = face_area / frame_area
+
+                    if 0.005 < relative_area < 0.3:
+                        face_centers.append(
+                            (face_center_x, face_center_y, face_area, confidence)
+                        )
+
+            except Exception as e:
+                logger.warning(
+                    f"Error detecting faces in frame at {sample_time}s: {e}"
+                )
+                continue
+
+        # Close MediaPipe detector
+        if mp_face_detection is not None:
+            mp_face_detection.close()
+
+        # Remove outliers (faces that are very far from the median position)
+        if len(face_centers) > 2:
+            face_centers = filter_face_outliers(face_centers)
+
+        logger.info(f"Detected {len(face_centers)} reliable face centers")
+        return face_centers
+
+    except Exception as e:
+        logger.error(f"Error in face detection: {e}")
+        return []
+
+
+def detect_optimal_crop_region(
+    video_clip: VideoFileClip,
+    start_time: float,
+    end_time: float,
+    target_ratio: float = 9/16
+) -> Tuple[int, int, int, int]:
+    """Detect optimal crop region using improved face detection."""
+    try:
+        original_width, original_height = video_clip.size
+
+        # Calculate target dimensions and ensure they're even
+        if original_width / original_height > target_ratio:
+            new_width = round_to_even(int(original_height * target_ratio))
+            new_height = round_to_even(original_height)
+        else:
+            new_width = round_to_even(original_width)
+            new_height = round_to_even(int(original_width / target_ratio))
+
+        # Try improved face detection
+        face_centers = detect_faces_in_clip(video_clip, start_time, end_time)
+
+        # Calculate crop position
+        if face_centers:
+            # Use weighted average of face centers with temporal consistency
+            total_weight = sum(
+                area * confidence for _, _, area, confidence in face_centers
+            )
+            if total_weight > 0:
+                weighted_x = sum(
+                    x * area * confidence
+                    for x, y, area, confidence in face_centers
+                ) / total_weight
+                weighted_y = sum(
+                    y * area * confidence
+                    for x, y, area, confidence in face_centers
+                ) / total_weight
+
+                # Add slight bias towards upper portion for better face framing
+                weighted_y = max(0, weighted_y - new_height * 0.1)
+
+                x_offset = max(
+                    0,
+                    min(int(weighted_x - new_width // 2), original_width - new_width)
+                )
+                y_offset = max(
+                    0,
+                    min(int(weighted_y - new_height // 2), original_height - new_height)
+                )
+
+                logger.info(
+                    f"Face-centered crop: {len(face_centers)} faces detected with improved algorithm"
+                )
+            else:
+                # Center crop
+                x_offset = (
+                    (original_width - new_width) // 2
+                    if original_width > new_width
+                    else 0
+                )
+                y_offset = (
+                    (original_height - new_height) // 2
+                    if original_height > new_height
+                    else 0
+                )
+        else:
+            # Center crop
+            x_offset = (
+                (original_width - new_width) // 2
+                if original_width > new_width
+                else 0
+            )
+            y_offset = (
+                (original_height - new_height) // 2
+                if original_height > new_height
+                else 0
+            )
+            logger.info("Using center crop (no faces detected)")
+
+        # Ensure offsets are even too
+        x_offset = round_to_even(x_offset)
+        y_offset = round_to_even(y_offset)
+
+        logger.info(
+            f"Crop dimensions: {new_width}x{new_height} at offset ({x_offset}, {y_offset})"
+        )
+        return (x_offset, y_offset, new_width, new_height)
+
+    except Exception as e:
+        logger.error(f"Error in crop detection: {e}")
+        # Fallback to center crop
+        original_width, original_height = video_clip.size
+        if original_width / original_height > target_ratio:
+            new_width = round_to_even(int(original_height * target_ratio))
+            new_height = round_to_even(original_height)
+        else:
+            new_width = round_to_even(original_width)
+            new_height = round_to_even(int(original_width / target_ratio))
+
+        x_offset = (
+            round_to_even((original_width - new_width) // 2)
+            if original_width > new_width
+            else 0
+        )
+        y_offset = (
+            round_to_even((original_height - new_height) // 2)
+            if original_height > new_height
+            else 0
+        )
+
+        return (x_offset, y_offset, new_width, new_height)
+
+
+def load_cached_transcript_data(
+    video_path: Path
+) -> Optional[Dict]:
     """Load cached AssemblyAI transcript data."""
     if isinstance(video_path, str):
         video_path = Path(video_path)
     
-    # Try multiple cache path strategies
+    # Try both cache formats for compatibility
     cache_paths = [
-        video_path.with_suffix('.assemblyai_cache.json'),
-        video_path.parent / f"{video_path.stem}.assemblyai_cache.json",
+        video_path.with_suffix('.transcript_cache.json'),
+        video_path.with_suffix('.assemblyai_cache.json')
     ]
     
-    # Also try to find cache in parent directory (for trimmed videos)
-    if 'trimmed' in str(video_path):
-        original_name = str(video_path).replace('trimmed_', '')
-        cache_paths.append(Path(original_name).with_suffix('.assemblyai_cache.json'))
-        cache_paths.append(video_path.parent.parent / Path(original_name).with_suffix('.assemblyai_cache.json').name)
+    for cache_path in cache_paths:
+        if cache_path.exists():
+            try:
+                with open(cache_path, 'r') as f:
+                    data = json.load(f)
+                    logger.info(f"Loaded transcript cache | path={cache_path}")
+                    return data
+            except Exception as e:
+                logger.warning(f"Failed to load transcript cache {cache_path}: {e}")
+                continue
     
-    cache_path = None
-    for cp in cache_paths:
-        if cp.exists():
-            cache_path = cp
-            break
-    
-    if not cache_path:
-        logger.warning(f"AssemblyAI cache not found | tried_paths={[str(p) for p in cache_paths]} | video_path={video_path}")
-        return None
-
-    try:
-        with open(cache_path, 'r') as f:
-            data = json.load(f)
-            words_count = len(data.get('words', []))
-            logger.info(f"Loaded transcript cache | path={cache_path} | words={words_count}")
-            if words_count > 0:
-                first_word = data['words'][0]
-                last_word = data['words'][-1]
-            first_word_start_sec = first_word.get('start', 0)
-            last_word_end_sec = last_word.get('end', 0)
-            logger.info(
-                f"Transcript range | first_word_start={first_word_start_sec:.2f}s ({int(first_word_start_sec * 1000)}ms) | "
-                f"last_word_end={last_word_end_sec:.2f}s ({int(last_word_end_sec * 1000)}ms)"
-            )
-            return data
-    except Exception as e:
-        logger.warning(f"Failed to load transcript cache: {e}")
-        return None
+    logger.warning(f"No transcript cache found for {video_path}")
+    return None
 
 
-def create_assemblyai_subtitles_moviepy(
+def create_assemblyai_subtitles(
     video_path: Path,
     clip_start: float,
     clip_end: float,
     video_width: int,
     video_height: int,
     font_family: str = "Arial",
-    font_size: int = 36,
-    font_color: str = "#FFFFFF",
+    font_size: int = 50,
+    font_color: str = "#FFFF00"
 ) -> List[TextClip]:
-    """
-    Create subtitles using AssemblyAI's precise word timing with MoviePy.
-    Exactly like SupoClip implementation.
-    """
-    if not MOVIEPY_AVAILABLE or TextClip is None:
-        logger.error("MoviePy TextClip not available!")
+    """Create subtitles using AssemblyAI's precise word timing."""
+    if not MOVIEPY_AVAILABLE:
+        logger.error("MoviePy not available")
         return []
     
     if isinstance(video_path, str):
         video_path = Path(video_path)
+    
     transcript_data = load_cached_transcript_data(video_path)
 
     if not transcript_data or not transcript_data.get('words'):
-        logger.warning(f"No cached transcript data available for subtitles | video_path={video_path}")
+        logger.warning("No cached transcript data available for subtitles")
         return []
 
-    total_words = len(transcript_data['words'])
+    # Convert clip timing to milliseconds
     clip_start_ms = int(clip_start * 1000)
     clip_end_ms = int(clip_end * 1000)
-    
-    logger.info(
-        f"Creating subtitles | clip_start={clip_start:.2f}s ({clip_start_ms}ms) | "
-        f"clip_end={clip_end:.2f}s ({clip_end_ms}ms) | total_words={total_words}"
-    )
 
+    # Find words that fall within our clip timerange
     relevant_words = []
+    logger.info(
+        f"Searching for words in clip range | "
+        f"clip_start={clip_start:.2f}s ({clip_start_ms}ms) | "
+        f"clip_end={clip_end:.2f}s ({clip_end_ms}ms) | "
+        f"total_words={len(transcript_data['words'])}"
+    )
+    
     for word_data in transcript_data['words']:
-        # Time in cache is stored in SECONDS, not milliseconds!
-        word_start_sec = word_data['start']
-        word_end_sec = word_data['end']
+        # Handle both formats: milliseconds (SupoClip) and seconds (CutClipAI)
+        word_start = word_data['start']
+        word_end = word_data['end']
         
-        # Convert to milliseconds for comparison
-        word_start_ms = int(word_start_sec * 1000)
-        word_end_ms = int(word_end_sec * 1000)
+        # If times are in seconds (less than 1000), convert to milliseconds
+        if word_start < 1000 and word_end < 1000:
+            word_start_ms = int(word_start * 1000)
+            word_end_ms = int(word_end * 1000)
+        else:
+            word_start_ms = int(word_start)
+            word_end_ms = int(word_end)
 
+        # Check if word overlaps with clip
         if word_start_ms < clip_end_ms and word_end_ms > clip_start_ms:
-            # Convert to relative time in seconds for MoviePy
+            # Adjust timing relative to clip start
             relative_start = max(0, (word_start_ms - clip_start_ms) / 1000.0)
             relative_end = min(
                 (clip_end_ms - clip_start_ms) / 1000.0,
@@ -159,401 +533,313 @@ def create_assemblyai_subtitles_moviepy(
             )
 
             if relative_end > relative_start:
-                word_info = {
+                relevant_words.append({
                     'text': word_data['text'],
                     'start': relative_start,
                     'end': relative_end,
                     'confidence': word_data.get('confidence', 1.0)
-                }
-                relevant_words.append(word_info)
-                logger.debug(
-                    f"Word found in clip | text='{word_data['text']}' | "
-                    f"absolute_time={word_start_sec:.2f}s-{word_end_sec:.2f}s | "
-                    f"relative_time={relative_start:.2f}s-{relative_end:.2f}s"
-                )
-
-    if not relevant_words:
-        first_word = transcript_data['words'][0] if transcript_data['words'] else None
-        last_word = transcript_data['words'][-1] if transcript_data['words'] else None
-        first_word_start_sec = first_word['start'] if first_word else 0
-        last_word_end_sec = last_word['end'] if last_word else 0
-        
-        # Log nearby words for debugging
-        nearby_words = []
-        for word_data in transcript_data['words'][:10]:  # Check first 10 words
-            word_start_sec = word_data['start']
-            word_end_sec = word_data['end']
-            if abs(word_start_sec - clip_start) < 5.0:  # Within 5 seconds
-                nearby_words.append(f"'{word_data['text']}' at {word_start_sec:.2f}s")
-        
-        logger.warning(
-            f"No words found in clip timerange | "
-            f"clip_start={clip_start:.2f}s ({clip_start_ms}ms) | "
-            f"clip_end={clip_end:.2f}s ({clip_end_ms}ms) | "
-            f"total_words={total_words} | "
-            f"first_word_start={first_word_start_sec:.2f}s ({int(first_word_start_sec * 1000)}ms) | "
-            f"last_word_end={last_word_end_sec:.2f}s ({int(last_word_end_sec * 1000)}ms) | "
-            f"nearby_words={nearby_words[:3] if nearby_words else 'none'}"
-        )
-        return []
+                })
     
     logger.info(f"Found {len(relevant_words)} relevant words for subtitles")
 
+    if not relevant_words:
+        logger.warning("No words found in clip timerange")
+        return []
+
+    # Group words into subtitle segments (3-4 words per subtitle for readability)
     subtitle_clips = []
     processor = VideoProcessor(font_family, font_size, font_color)
 
-    # Calculate font size - increased max limit for better visibility
-    # For 1080px width: font_size * (1080/720) = font_size * 1.5
-    calculated_font_size = max(24, min(70, int(font_size * (video_width / 720))))
+    # Use custom font size or calculate based on video width
+    # Increased base font size for better visibility
+    calculated_font_size = max(40, min(80, int(font_size * (video_width / 720) * 1.5)))
     final_font_size = calculated_font_size
 
     words_per_subtitle = 3
-    previous_end = 0  # Track end time of previous subtitle to prevent overlap
-    min_gap_between_subtitles = 0.3  # Minimum gap in seconds between subtitles (old must disappear before new appears)
-    
     for i in range(0, len(relevant_words), words_per_subtitle):
         word_group = relevant_words[i:i + words_per_subtitle]
 
         if not word_group:
             continue
 
-        # Calculate timing based on words, but ensure no overlap with previous subtitle
-        clip_duration = clip_end - clip_start
-        
-        # Start slightly earlier (0.1s) for better sync, but ensure gap after previous subtitle
-        word_start_time = word_group[0]['start']
-        word_end_time = word_group[-1]['end']
-        
-        # Calculate desired start time (slightly before word starts)
-        desired_start = max(0, word_start_time - 0.1)
-        
-        # Ensure minimum gap after previous subtitle ends
-        # Next subtitle can only start after previous_end + min_gap
-        segment_start = max(desired_start, previous_end + min_gap_between_subtitles)
-        
-        # End exactly when word ends (no delay to prevent overlap)
-        segment_end = min(clip_duration, word_end_time)
-        
-        # If start time is pushed too far, adjust end time to maintain minimum duration
-        if segment_start >= segment_end:
-            segment_end = segment_start + 0.2  # Minimum duration
-        
+        # Calculate segment timing
+        segment_start = word_group[0]['start']
+        segment_end = word_group[-1]['end']
         segment_duration = segment_end - segment_start
 
-        if segment_duration < 0.1:
+        if segment_duration < 0.1:  # Skip very short segments
             continue
-        
-        # Update previous_end for next iteration (this is when subtitle fully disappears)
-        previous_end = segment_end
 
+        # Create text
         text = ' '.join(word['text'] for word in word_group)
 
         try:
+            # ROBUST APPROACH: Use 'caption' with fixed size to prevent ANY clipping
+            # We set a height that is 2.5x the font size to definitely fit descenders (g, y, p)
+            caption_width = int(video_width * 0.9)
+            caption_height = int(final_font_size * 2.5)
+            
+            text_clip = TextClip(
+                text=text,
+                font=processor.font_path,
+                font_size=final_font_size,
+                color=font_color,
+                stroke_color='black',
+                stroke_width=2,
+                method='caption',
+                size=(caption_width, caption_height),
+                text_align='center'
+            ).with_duration(segment_duration).with_start(segment_start)
+            
+            # Position at 80% down (lower part of the screen)
+            # Since we have a tall caption box, we position it so the text is where we want it
+            vertical_position = int(video_height * 0.80 - caption_height // 2)
+            
+            # Ensure we don't hit the very bottom
+            if vertical_position + caption_height > video_height - 20:
+                vertical_position = video_height - caption_height - 20
+            
+            if vertical_position < 20:
+                vertical_position = 20
+            
             logger.info(
-                f"Creating subtitle TextClip | text='{text[:50]}...' | "
-                f"start={segment_start:.2f}s | end={segment_end:.2f}s | "
-                f"duration={segment_duration:.2f}s | font={processor.font_path} | "
-                f"font_size={final_font_size}"
+                f"Subtitle positioned (Caption method) | text='{text}' | "
+                f"box_pos={vertical_position} | box_height={caption_height} | "
+                f"font_size={final_font_size} | video_h={video_height}"
             )
             
-            # Create text clip with robust parameters
-            # Add newlines to the text to prevent clipping by ImageMagick
-            # We add an extra newline and a space at the bottom to give even more "air" for descenders
-            display_text = f"\n{text}\n \n"
-            
-            try:
-                # Primary attempt: MoviePy 2.x style
-                text_clip = TextClip(
-                    text=display_text,
-                    font=processor.font_path,
-                    font_size=final_font_size,
-                    color=font_color,
-                    stroke_color='black',
-                    stroke_width=2,
-                    method='label',
-                    text_align='center'
-                )
-            except Exception as e:
-                logger.warning(f"Failed to create TextClip with 'text' (MoviePy 2.x style): {e}")
-                try:
-                    # Fallback: MoviePy 1.x style
-                    from moviepy.video.VideoClip import TextClip as TC
-                    text_clip = TC(
-                        txt=display_text,
-                        font=processor.font_path,
-                        fontsize=final_font_size,
-                        color=font_color,
-                        stroke_color='black',
-                        stroke_width=2,
-                        method='label'
-                    )
-                except Exception as e2:
-                    logger.error(f"Failed to create TextClip with fallback: {e2}")
-                    continue
-
-            # Set duration and start time
-            text_clip = text_clip.with_duration(segment_duration).with_start(segment_start)
-
-            # Get actual rendered size
-            text_width, text_height = (0, 0)
-            if hasattr(text_clip, 'size') and text_clip.size:
-                text_width, text_height = text_clip.size
-            
-            # Position the CENTER of the text at 75% height
-            # Since we added extra newlines, we need to be careful with centering.
-            # We'll shift it up by a few extra pixels just to be 100% safe from the bottom.
-            desired_center_y = int(video_height * 0.75) - 5
-            
-            if text_height > 0:
-                vertical_position = desired_center_y - (text_height // 2)
-            else:
-                # Fallback if size is unknown
-                vertical_position = desired_center_y - (final_font_size // 2) - 60
-            
-            # Final boundary check: don't let it go too low
-            max_allowed_y = video_height - (text_height if text_height > 0 else 150) - 20
-            if vertical_position > max_allowed_y:
-                vertical_position = max_allowed_y
-            
-            # Set position
+            # Position the entire box
             text_clip = text_clip.with_position(('center', vertical_position))
             
-            logger.info(
-                f"Subtitle created | text='{text}' | "
-                f"start={segment_start:.2f}s | duration={segment_duration:.2f}s | "
-                f"v_pos={vertical_position} | size={text_width}x{text_height}"
+            # Log final position with descender info
+            descender_chars = ['g', 'p', 'q', 'y', 'j']
+            has_descenders = any(char in text.lower() for char in descender_chars)
+            
+            if has_descenders:
+                logger.info(f"⚠️ Text contains descenders: '{text}' - using Caption box to protect them")
+
+            logger.debug(
+                f"Created subtitle | text='{text}' | "
+                f"start={segment_start:.2f}s | end={segment_end:.2f}s | "
+                f"duration={segment_duration:.2f}s | "
+                f"position=({video_width//2}, {vertical_position}) | "
+                f"font_size={final_font_size}"
             )
 
-            subtitle_clips.append(text_clip)
+            subtitle_clips.extend([text_clip])
 
         except Exception as e:
-            logger.error(f"Failed to create subtitle for '{text}': {e}", exc_info=True)
+            logger.warning(f"Failed to create subtitle for '{text}': {e}", exc_info=True)
             continue
 
-    logger.info(
-        f"Created {len(subtitle_clips)} subtitle elements from AssemblyAI data | "
-        f"total_relevant_words={len(relevant_words)} | "
-        f"words_per_subtitle={words_per_subtitle}"
-    )
-    
-    if subtitle_clips:
-        logger.info("Subtitle details:")
-        for idx, sub_clip in enumerate(subtitle_clips):
-            logger.info(
-                f"  Subtitle {idx+1}: start={sub_clip.start:.2f}s | "
-                f"duration={sub_clip.duration:.2f}s | "
-                f"position={sub_clip.pos if hasattr(sub_clip, 'pos') else 'N/A'}"
-            )
-    
+    logger.info(f"Created {len(subtitle_clips)} subtitle elements from AssemblyAI data")
     return subtitle_clips
 
 
-def create_clip_with_moviepy_subtitles(
-    video_path: str,
+def create_optimized_clip(
+    video_path: Path,
     start_time: float,
     end_time: float,
-    output_path: str,
+    output_path: Path,
     add_subtitles: bool = True,
     font_family: str = "Arial",
-    font_size: int = 36,
-    font_color: str = "#FFFFFF",
+    font_size: int = 50,
+    font_color: str = "#FFFF00"
 ) -> bool:
-    """
-    Create optimized 9:16 clip with AssemblyAI subtitles using MoviePy.
-    Exactly like SupoClip implementation.
-    """
+    """Create optimized 9:16 clip with AssemblyAI subtitles."""
     if not MOVIEPY_AVAILABLE:
-        logger.error("MoviePy is not available! Cannot create clips with subtitles.")
+        logger.error("MoviePy is required for video processing with subtitles")
         return False
     
+    if isinstance(video_path, str):
+        video_path = Path(video_path)
+    if isinstance(output_path, str):
+        output_path = Path(output_path)
+    
     try:
-        video_path_obj = Path(video_path)
-        output_path_obj = Path(output_path)
-        
         duration = end_time - start_time
         if duration <= 0:
             logger.error(f"Invalid clip duration: {duration:.1f}s")
             return False
 
-        logger.info(f"Creating clip with MoviePy: {start_time:.1f}s - {end_time:.1f}s ({duration:.1f}s)")
+        logger.info(f"Creating clip: {start_time:.1f}s - {end_time:.1f}s ({duration:.1f}s)")
 
+        # Load and process video
         video = VideoFileClip(str(video_path))
 
-        # Check if clip is within video bounds
         if start_time >= video.duration:
-            logger.warning(
-                f"Start time {start_time:.1f}s exceeds video duration {video.duration:.1f}s. "
-                f"Skipping this clip."
+            logger.error(
+                f"Start time {start_time}s exceeds video duration {video.duration:.1f}s"
             )
             video.close()
             return False
 
-        # Adjust end_time if it exceeds video duration
-        if end_time > video.duration:
-            logger.warning(
-                f"End time {end_time:.1f}s exceeds video duration {video.duration:.1f}s. "
-                f"Adjusting to {video.duration:.1f}s"
-            )
-            end_time = video.duration
+        end_time = min(end_time, video.duration)
+        clip = video.subclipped(start_time, end_time)
         
-        # Check if we have valid duration after adjustment
-        if end_time <= start_time:
-            logger.warning(
-                f"Invalid clip duration after adjustment: start={start_time:.1f}s, end={end_time:.1f}s. "
-                f"Skipping this clip."
-            )
-            video.close()
-            return False
-        # MoviePy 2.x uses subclipped, 1.x uses subclip
-        try:
-            clip = video.subclipped(start_time, end_time)
-        except AttributeError:
-            clip = video.subclip(start_time, end_time)
+        # Get original video dimensions
+        original_width, original_height = video.size
+        clip_width, clip_height = clip.size
+        
+        logger.info(
+            f"Video dimensions | original={original_width}x{original_height} | "
+            f"clip={clip_width}x{clip_height} | duration={duration:.1f}s"
+        )
 
-        # Robust 9:16 transformation without stretching
-        # Step 1: Resize height to 1920, keeping aspect ratio
-        target_height = 1920
-        target_width = 1080
-        
+        # Get optimal crop region using face detection
+        # Always crop to 9:16 regardless of clip duration
         try:
-            # Try MoviePy 2.x
-            rescaled_clip = clip.resized(height=target_height)
-        except AttributeError:
-            # Fallback for MoviePy 1.x
-            rescaled_clip = clip.resize(height=target_height)
+            x_offset, y_offset, new_width, new_height = detect_optimal_crop_region(
+                video_clip=video,
+                start_time=start_time,
+                end_time=end_time,
+                target_ratio=9/16
+            )
             
-        # Step 2: Crop the width to exactly 1080 from the center
-        current_w, current_h = rescaled_clip.size
-        x1 = max(0, int((current_w - target_width) / 2))
-        y1 = 0
-        x2 = min(current_w, x1 + target_width)
-        y2 = target_height
+            logger.info(
+                f"Crop region calculated | offset=({x_offset}, {y_offset}) | "
+                f"size={new_width}x{new_height} | target_ratio=9:16"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Error in detect_optimal_crop_region, using center crop fallback: {e}"
+            )
+            # Fallback to simple center crop
+            if original_width / original_height > 9/16:
+                new_width = round_to_even(int(original_height * 9/16))
+                new_height = round_to_even(original_height)
+            else:
+                new_width = round_to_even(original_width)
+                new_height = round_to_even(int(original_width / (9/16)))
+            x_offset = round_to_even((original_width - new_width) // 2)
+            y_offset = round_to_even((original_height - new_height) // 2)
+            logger.info(
+                f"Fallback center crop | offset=({x_offset}, {y_offset}) | "
+                f"size={new_width}x{new_height}"
+            )
+
+        # Verify crop dimensions are valid
+        if new_width <= 0 or new_height <= 0:
+            logger.error(
+                f"Invalid crop dimensions: {new_width}x{new_height}. "
+                f"Falling back to center crop."
+            )
+            # Fallback: center crop
+            if original_width / original_height > 9/16:
+                new_width = round_to_even(int(original_height * 9/16))
+                new_height = round_to_even(original_height)
+            else:
+                new_width = round_to_even(original_width)
+                new_height = round_to_even(int(original_width / (9/16)))
+            x_offset = round_to_even((original_width - new_width) // 2)
+            y_offset = round_to_even((original_height - new_height) // 2)
+            logger.info(
+                f"Fallback crop | offset=({x_offset}, {y_offset}) | "
+                f"size={new_width}x{new_height}"
+            )
+
+        # Ensure crop region is within clip bounds
+        x_offset = max(0, min(x_offset, clip_width - new_width))
+        y_offset = max(0, min(y_offset, clip_height - new_height))
+        new_width = min(new_width, clip_width - x_offset)
+        new_height = min(new_height, clip_height - y_offset)
         
+        # Ensure dimensions are even
+        new_width = round_to_even(new_width)
+        new_height = round_to_even(new_height)
+        
+        logger.info(
+            f"Final crop parameters | offset=({x_offset}, {y_offset}) | "
+            f"size={new_width}x{new_height} | aspect_ratio={new_width/new_height:.3f}"
+        )
+
+        # Crop the clip to 9:16 aspect ratio - ALWAYS apply crop
+        # This is critical: we MUST crop to 9:16 for all clips regardless of duration
         try:
-            # Try universal crop method
-            cropped_clip = rescaled_clip.crop(x1=x1, y1=y1, x2=x2, y2=y2)
-        except AttributeError:
-            # Fallback for some versions
-            try:
-                cropped_clip = rescaled_clip.with_crop(x1=x1, y1=y1, x2=x2, y2=y2)
-            except AttributeError:
-                cropped_clip = rescaled_clip.cropped(x1=x1, y1=y1, x2=x2, y2=y2)
+            cropped_clip = clip.cropped(
+                x1=x_offset,
+                y1=y_offset,
+                x2=x_offset + new_width,
+                y2=y_offset + new_height
+            )
+            
+            # Verify cropped clip dimensions
+            cropped_width, cropped_height = cropped_clip.size
+            actual_ratio = cropped_width / cropped_height
+            logger.info(
+                f"Cropped clip dimensions | size={cropped_width}x{cropped_height} | "
+                f"ratio={actual_ratio:.3f} (target=0.5625 for 9:16)"
+            )
+            
+            if abs(actual_ratio - 9/16) > 0.1:
+                logger.error(
+                    f"❌ CRITICAL: Cropped clip ratio {actual_ratio:.3f} differs significantly from "
+                    f"target 9:16 (0.5625). Video will be wide instead of vertical!"
+                )
+                logger.error(
+                    f"   Original: {original_width}x{original_height} | "
+                    f"Crop params: offset=({x_offset}, {y_offset}) size={new_width}x{new_height}"
+                )
+        except Exception as e:
+            logger.error(
+                f"❌ CRITICAL: Failed to crop clip to 9:16: {e}",
+                exc_info=True
+            )
+            # If crop fails, we cannot proceed - this is a critical error
+            clip.close()
+            video.close()
+            raise Exception(
+                f"Failed to crop video to 9:16 aspect ratio. "
+                f"This is required for all clips. Error: {e}"
+            )
 
-        # Final safety check: if we somehow don't have exactly 1080x1920, force it
-        if cropped_clip.size != (target_width, target_height):
-            try:
-                cropped_clip = cropped_clip.resized((target_width, target_height))
-            except AttributeError:
-                cropped_clip = cropped_clip.resize(new_size=(target_width, target_height))
-
+        # Add AssemblyAI subtitles
         final_clips = [cropped_clip]
 
         if add_subtitles:
-            logger.info(f"Adding subtitles to clip | start_time={start_time:.2f} | end_time={end_time:.2f}")
-            subtitle_clips = create_assemblyai_subtitles_moviepy(
-                video_path_obj,
-                start_time,
-                end_time,
-                target_width,
-                target_height,
-                font_family,
-                font_size,
-                font_color
+            subtitle_clips = create_assemblyai_subtitles(
+                video_path=video_path,
+                clip_start=start_time,
+                clip_end=end_time,
+                video_width=new_width,
+                video_height=new_height,
+                font_family=font_family,
+                font_size=font_size,
+                font_color=font_color
             )
-            
-            if subtitle_clips:
-                logger.info(f"Successfully created {len(subtitle_clips)} subtitle clips")
-                final_clips.extend(subtitle_clips)
-            else:
-                logger.warning("No subtitle clips were generated for this segment")
+            final_clips.extend(subtitle_clips)
 
-        if len(final_clips) > 1:
-            logger.info(f"Compositing {len(final_clips)} elements (1 video + {len(final_clips)-1} subtitles)")
-            # In MoviePy 2.x, it's safer to provide the size of the background video
-            final_clip = CompositeVideoClip(final_clips, size=cropped_clip.size)
-            # Ensure the duration is set to match the video clip
-            final_clip = final_clip.with_duration(cropped_clip.duration)
-        else:
-            logger.info("No subtitles to add, using video clip only")
-            final_clip = cropped_clip
+        # Compose and encode
+        final_clip = (
+            CompositeVideoClip(final_clips)
+            if len(final_clips) > 1
+            else cropped_clip
+        )
 
         processor = VideoProcessor(font_family, font_size, font_color)
-        encoding_settings = {
-            "codec": "libx264",
-            "audio_codec": "aac",
-            "bitrate": "8000k",
-            "audio_bitrate": "256k",
-            "preset": "medium",
-            "ffmpeg_params": ["-crf", "20", "-pix_fmt", "yuv420p", "-profile:v", "main", "-level", "4.1"]
-        }
+        encoding_settings = processor.get_optimal_encoding_settings("high")
 
-        import tempfile
+        # Use unique temp audio file to avoid conflicts in parallel processing
         import uuid
-        temp_audio_path = str(Path(output_path_obj).parent / f'temp-audio-{uuid.uuid4().hex[:8]}.m4a')
-        
-        logger.info(
-            f"Writing video file | output_path={output_path_obj} | "
-            f"duration={final_clip.duration:.2f}s | has_subtitles={len(final_clips) > 1} | "
-            f"total_clips_in_composition={len(final_clips)}"
+        temp_audiofile = f'temp-audio-{uuid.uuid4().hex[:8]}.m4a'
+
+        final_clip.write_videofile(
+            str(output_path),
+            temp_audiofile=temp_audiofile,
+            remove_temp=True,
+            logger=None,
+            **encoding_settings
         )
-        
-        # Final verification before writing
-        if len(final_clips) > 1:
-            logger.info("FINAL VERIFICATION - Subtitles before write:")
-            for idx, clip_item in enumerate(final_clips):
-                if idx == 0:
-                    logger.info(f"  [VIDEO] Clip {idx}: duration={clip_item.duration:.2f}s")
-                else:
-                    subtitle_clip = clip_item
-                    clip_text = 'N/A'
-                    if hasattr(subtitle_clip, 'txt'):
-                        clip_text = str(subtitle_clip.txt)[:50]
-                    elif hasattr(subtitle_clip, 'text'):
-                        clip_text = str(subtitle_clip.text)[:50]
-                    
-                    logger.info(
-                        f"  [SUBTITLE] Clip {idx}: text='{clip_text}' | "
-                        f"start={subtitle_clip.start:.2f}s | duration={subtitle_clip.duration:.2f}s | "
-                        f"size={subtitle_clip.size if hasattr(subtitle_clip, 'size') else 'N/A'}"
-                    )
-        
-        if final_clip.duration is None or final_clip.duration < 0.5:
-            logger.error(f"Final clip duration is too short or invalid: {final_clip.duration}")
-            return False
 
-        try:
-            final_clip.write_videofile(
-                str(output_path_obj),
-                temp_audiofile=temp_audio_path,
-                remove_temp=True,
-                logger=None,
-                **encoding_settings
-            )
-            
-            output_size = Path(output_path_obj).stat().st_size if Path(output_path_obj).exists() else 0
-            logger.info(
-                f"Video file written successfully | path={output_path_obj} | "
-                f"size={output_size} bytes ({output_size / 1024 / 1024:.2f} MB) | "
-                f"has_subtitles={len(final_clips) > 1} | subtitles_count={len(final_clips) - 1}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to write video file: {e}", exc_info=True)
-            raise
-        finally:
-            if Path(temp_audio_path).exists():
-                try:
-                    Path(temp_audio_path).unlink()
-                except:
-                    pass
-
+        # Cleanup
         final_clip.close()
+        cropped_clip.close()
         clip.close()
         video.close()
 
-        logger.info(f"Successfully created clip with MoviePy: {output_path_obj}")
+        logger.info(f"Successfully created clip: {output_path}")
         return True
 
     except Exception as e:
-        logger.error(f"Failed to create clip with MoviePy: {e}", exc_info=True)
+        logger.error(f"Failed to create clip: {e}", exc_info=True)
         return False
-

@@ -15,9 +15,7 @@ from app.services.billing.pricing import PricingService
 from app.services.billing.wallet import WalletService
 from app.services.storage.s3 import S3Service
 from app.services.video.pipeline import VideoPipeline
-from app.services.video.subtitles import SubtitlesService
 from app.utils.billing.validators import check_balance_for_video_processing
-from app.utils.video.ffmpeg import cut_crop_and_burn_optimized
 from app.utils.video.files import create_temp_dir, create_temp_file, delete_temp_files
 
 logger = get_logger(__name__)
@@ -186,78 +184,4 @@ def process_video_task(
                 f"files_count={len(temp_files_to_cleanup)}",
             )
             delete_temp_files(file_paths=temp_files_to_cleanup)
-
-
-@celery_app.task(
-    name="process_single_clip_task",
-)
-def process_single_clip_task(
-    trimmed_video_path: str,
-    moment: dict[str, Any],
-    clip_index: int,
-) -> str:
-    """
-    Process single clip: cut, crop to 9:16, generate subtitles, and burn.
-    Optimized with single-pass FFmpeg operation.
-
-    Args:
-        trimmed_video_path: Path to trimmed source video
-        moment: Dictionary with start, end times
-        clip_index: Index of clip for naming
-
-    Returns:
-        Path to final processed clip
-    """
-    logger.info(
-        f"Processing clip {clip_index} | "
-        f"start={moment['start']:.2f}s | end={moment['end']:.2f}s",
-    )
-
-    try:
-        subtitles_service = SubtitlesService()
-        
-        output_dir = create_temp_dir()
-        
-        srt_path = subtitles_service.generate_srt(
-            video_path=trimmed_video_path,
-            source_video_path=trimmed_video_path,
-            clip_start_time=moment["start"],
-            clip_end_time=moment["end"],
-        )
-        
-        logger.debug(
-            f"Generated subtitles for clip {clip_index} | srt_path={srt_path}",
-        )
-        
-        clip_name = (
-            f"final_clip_{clip_index}_"
-            f"{moment['start']:.0f}_{moment['end']:.0f}.mp4"
-        )
-        final_clip_path = output_dir / clip_name
-        
-        cut_crop_and_burn_optimized(
-            input_path=trimmed_video_path,
-            output_path=str(final_clip_path),
-            start_time=moment["start"],
-            end_time=moment["end"],
-            srt_path=srt_path,
-        )
-        
-        logger.info(
-            f"Clip {clip_index} processed successfully | path={final_clip_path}",
-        )
-        
-        return str(final_clip_path)
-        
-    except Exception as e:
-        log_error(
-            logger=logger,
-            message=f"Failed to process clip {clip_index}",
-            error=e,
-            context={
-                "moment": moment,
-                "trimmed_video_path": trimmed_video_path,
-            },
-        )
-        raise
 

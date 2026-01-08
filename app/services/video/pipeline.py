@@ -11,17 +11,9 @@ from app.services.video.assemblyai_transcription import AssemblyAITranscriptionS
 from app.services.video.clipping import ClippingService
 from app.services.video.flow_integration import FlowIntegrationService
 from app.services.video.llm_analysis import LLMAnalysisService
+from app.utils.video.files import create_temp_dir
 
 logger = get_logger(__name__)
-
-try:
-    from app.services.video.moviepy_subtitles import create_clip_with_moviepy_subtitles, MOVIEPY_AVAILABLE
-except ImportError as e:
-    logger.error(f"Failed to import MoviePy subtitles: {e}")
-    create_clip_with_moviepy_subtitles = None
-    MOVIEPY_AVAILABLE = False
-from app.utils.video.ffmpeg import cut_crop_and_burn_optimized
-from app.utils.video.files import create_temp_dir
 
 
 class VideoPipeline:
@@ -143,6 +135,13 @@ class VideoPipeline:
                 logger.info(f"Video uploaded to Flow | flow_task_id={flow_task_id}")
 
         transcription_start = time.time()
+        
+        # Ensure trimmed_path is a Path object for easier manipulation
+        trimmed_path_obj = Path(trimmed_path)
+        
+        # We no longer pre-crop the entire video here as it's too slow and heavy.
+        # Instead, we will do crop + cut + subtitles in one pass using FFmpeg for each clip.
+        
         logger.info(
             f"Starting AssemblyAI transcription | video_path={trimmed_path}",
         )
@@ -196,14 +195,15 @@ class VideoPipeline:
             best_moments_list = llm_analysis.get("best_moments", [])
             
             # Log what we got
-            logger.info(f"LLM returned {len(best_moments_list)} moments. Max allowed: {settings.MAX_CLIPS_COUNT}")
+            current_max_clips = settings.MAX_CLIPS_COUNT
+            logger.info(f"LLM returned {len(best_moments_list)} moments. Max allowed by config: {current_max_clips}")
 
             # Truncate to MAX_CLIPS_COUNT if LLM returned more
-            if len(best_moments_list) > settings.MAX_CLIPS_COUNT:
+            if len(best_moments_list) > current_max_clips:
                 logger.info(
-                    f"Truncating {len(best_moments_list)} moments to {settings.MAX_CLIPS_COUNT}"
+                    f"Truncating {len(best_moments_list)} moments to {current_max_clips}"
                 )
-                best_moments_list = best_moments_list[:settings.MAX_CLIPS_COUNT]
+                best_moments_list = best_moments_list[:current_max_clips]
 
             logger.info(
                 f"LLM analysis completed | "
@@ -220,6 +220,8 @@ class VideoPipeline:
                     "score": float(moment.get("score", 0)),
                     "reasoning": moment.get("reason", ""),
                 })
+            
+            logger.info(f"Final best_moments list for processing: {best_moments}")
         else:
             logger.error(
                 f"LLM analysis failed or not available | "
@@ -242,65 +244,74 @@ class VideoPipeline:
             if clip_duration > max_duration:
                 logger.error(
                     f"Clip {idx} duration ({clip_duration:.1f}s) exceeds max ({max_duration}s). "
+                    f"Clip range: {moment['start']:.2f}s - {moment['end']:.2f}s. "
                     f"Skipping this clip."
                 )
                 return None, None
             
             if clip_duration < min_duration:
-                logger.error(
-                    f"Clip {idx} duration ({clip_duration:.1f}s) is below minimum ({min_duration}s). "
-                    f"Skipping this clip."
-                )
-                return None, None
+                if clip_duration >= min_duration - 5.0:
+                    logger.info(
+                        f"Clip {idx} duration ({clip_duration:.1f}s) is below minimum ({min_duration}s), "
+                        f"but within increased tolerance. Processing anyway."
+                    )
+                else:
+                    logger.error(
+                        f"Clip {idx} duration ({clip_duration:.1f}s) is too short. "
+                        f"Skipping this clip."
+                    )
+                    return None, None
             
             logger.info(
-                f"Processing clip {idx}/{len(best_moments)} | "
+                f"🎬 Processing clip {idx}/{len(best_moments)} | "
                 f"start={moment['start']:.2f}s | end={moment['end']:.2f}s | "
                 f"duration={clip_duration:.2f}s",
             )
 
             output_dir = create_temp_dir()
-
-            clip_name = (
-                f"final_clip_{idx}_"
-                f"{moment['start']:.0f}_{moment['end']:.0f}.mp4"
-            )
-            final_clip_path = output_dir / clip_name
-
-            if not MOVIEPY_AVAILABLE:
-                raise ImportError(
-                    "MoviePy is required for video processing with subtitles. "
-                    "Please install MoviePy: pip install moviepy"
-                )
+            final_clip_path = output_dir / f"final_clip_{idx}.mp4"
             
-            # Use trimmed_path for video, but pass original video path for cache lookup
-            # The cache is saved with the trimmed video name
-            success = create_clip_with_moviepy_subtitles(
-                video_path=trimmed_path,
-                start_time=moment["start"],
-                end_time=moment["end"],
-                output_path=str(final_clip_path),
-                 add_subtitles=True,
-                 font_family="Arial",
-                 font_size=60,  # Increased from 50 for even better visibility
-                 font_color="#FFFF00", # Bright yellow for better visibility
-             )
-            
-            if not success:
-                logger.warning(
-                    f"Failed to create clip {idx} with MoviePy | "
-                    f"start={moment['start']:.2f}s | end={moment['end']:.2f}s. "
-                    f"Skipping this clip."
+            try:
+                from app.services.video.moviepy_subtitles import create_optimized_clip
+                
+                logger.info(
+                    f"📝 Clip {idx} | Processing with MoviePy | "
+                    f"trimmed_video={Path(trimmed_path).name} | "
+                    f"clip_time={moment['start']:.2f}s-{moment['end']:.2f}s"
                 )
-                # Skip this clip instead of failing the entire task
+                
+                success = create_optimized_clip(
+                    video_path=Path(trimmed_path),
+                    start_time=moment["start"],
+                    end_time=moment["end"],
+                    output_path=final_clip_path,
+                    add_subtitles=True,
+                    font_family="Arial",
+                    font_size=50,
+                    font_color="#FFFF00"
+                )
+                
+                if success and final_clip_path.exists():
+                    file_size = final_clip_path.stat().st_size
+                    logger.info(
+                        f"✅ Clip {idx} processed successfully | "
+                        f"size={file_size / (1024 * 1024):.2f}MB | "
+                        f"subtitles=yes"
+                    )
+                    return idx, str(final_clip_path)
+                else:
+                    logger.error(
+                        f"❌ Clip {idx} processing failed | "
+                        f"success={success} | exists={final_clip_path.exists()}"
+                    )
+                    return None, None
+                    
+            except Exception as e:
+                logger.error(
+                    f"Failed to process clip {idx} | error={e}",
+                    exc_info=True,
+                )
                 return None, None
-
-            logger.info(
-                f"Clip {idx}/{len(best_moments)} processed | "
-                f"path={final_clip_path}",
-            )
-
-            return idx, str(final_clip_path)
 
         clip_paths_dict = {}
         max_workers = min(
@@ -310,7 +321,7 @@ class VideoPipeline:
         
         logger.info(
             f"Processing {len(best_moments)} clips in parallel | "
-            f"max_workers={max_workers}",
+            f"max_workers={max_workers} | best_moments_count={len(best_moments)}"
         )
 
         clips_start = time.time()
@@ -325,25 +336,24 @@ class VideoPipeline:
             }
 
             for future in as_completed(future_to_clip):
+                idx, moment = future_to_clip[future]
                 try:
                     clip_idx, clip_path = future.result()
                     if clip_idx is not None and clip_path is not None:
                         clip_paths_dict[clip_idx] = clip_path
+                        logger.info(f"Clip {clip_idx} processed successfully: {clip_path}")
                     else:
-                        idx, moment = future_to_clip[future]
                         logger.warning(
-                            f"Clip {idx} was skipped | "
+                            f"Clip {idx} was skipped (returned None) | "
                             f"start={moment['start']:.2f}s | end={moment['end']:.2f}s"
                         )
                 except Exception as e:
-                    idx, moment = future_to_clip[future]
                     logger.error(
                         f"Failed to process clip {idx} | "
                         f"start={moment['start']:.2f}s | end={moment['end']:.2f}s | "
                         f"error={e}",
+                        exc_info=True
                     )
-                    # Don't raise - continue processing other clips
-                    # raise
 
         clips_time = time.time() - clips_start
         clip_paths = [clip_paths_dict[i] for i in sorted(clip_paths_dict.keys())]
@@ -353,9 +363,7 @@ class VideoPipeline:
         logger.info(
             f"Optimized pipeline completed | clips_count={len(clip_paths)} | "
             f"total_time={total_time:.1f}s ({total_time/60:.1f}min) | "
-            f"breakdown: trim={trim_time:.1f}s, transcribe={transcription_time:.1f}s "
-            f"({transcription_time/60:.1f}min), llm={llm_analysis_time:.1f}s, "
-            f"clips={clips_time:.1f}s",
+            f"clip_paths={clip_paths}"
         )
 
         return clip_paths

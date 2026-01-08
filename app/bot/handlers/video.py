@@ -344,6 +344,16 @@ async def process_video_file(
                 user_id=user_id,
             )
 
+            if clips_count == 0:
+                logger.warning(
+                    f"Video processing completed but 0 clips were generated | user_id={user_id} | task_id={task_id}"
+                )
+                await message.answer(
+                    text="❌ К сожалению, не удалось выделить подходящие клипы из этого видео. "
+                         "Попробуйте другое видео или проверьте настройки длительности.",
+                )
+                return
+
             await message.answer(
                 text=CLIPS_READY_MESSAGE.format(
                     clips_count=clips_count,

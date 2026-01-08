@@ -279,13 +279,9 @@ def crop_9_16(
     output_path: str,
 ) -> None:
     """
-    Crop video to 9:16 aspect ratio.
-
-    Args:
-        input_path: Path to input video
-        output_path: Path to output video
+    Crop video to 9:16 aspect ratio using high-quality lanczos scaling and center crop.
+    Guarantees no stretching by using force_original_aspect_ratio=increase and setsar=1.
     """
-    scale_filter = _get_scale_filter()
     video_codec = _get_video_codec()
     preset = _get_ffmpeg_preset()
     quality = _get_ffmpeg_quality()
@@ -294,15 +290,15 @@ def crop_9_16(
         input_path=input_path,
         output_path=output_path,
     )
-    # Robust crop to 9:16: Scale to cover target, then crop center
-    # This prevents stretching and always fills the 1080x1920 frame
     cmd.extend([
         "-vf",
-        "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1",
+        "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,setsar=1",
         "-c:v",
         video_codec,
         "-preset",
         preset,
+        "-c:a",
+        "copy",
         "-y",
         output_path,
     ])
@@ -324,6 +320,7 @@ def burn_subtitles(
     """
     Burn subtitles into video.
     Supports ASS format with positioning at 75% height (lower-middle).
+    Ensures 9:16 aspect ratio without stretching.
 
     Args:
         video_path: Path to input video
@@ -339,9 +336,17 @@ def burn_subtitles(
     preset = _get_ffmpeg_preset()
     quality = _get_ffmpeg_quality()
     
+    # Robust 9:16 transformation + Subtitles
+    video_filter = (
+        "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,"
+        "crop=1080:1920,"
+        "setsar=1,"
+        f"subtitles={srt_path}"
+    )
+    
     cmd.extend([
             "-vf",
-            f"subtitles={srt_path}",
+            video_filter,
         "-c:v",
         video_codec,
         "-preset",
@@ -382,7 +387,9 @@ def cut_crop_and_burn_optimized(
     """
     duration = end_time - start_time
     
-    video_codec = _get_video_codec()
+    # IMPORTANT: Force CPU encoding to avoid aspect ratio issues
+    # GPU encoding (h264_nvenc) with use_gpu=False causes stretched video
+    video_codec = "libx264"
     
     # Smart crop to 9:16 with proper aspect ratio preservation
     # Step 1: Crop width from center if video is wider than 9:16
@@ -415,9 +422,10 @@ def cut_crop_and_burn_optimized(
     # Robust 9:16 transformation:
     # 1. Scale to cover 1080x1920 (no stretching)
     # 2. Crop center 1080x1920
-    # 3. Force square pixels
+    # 3. Force square pixels (setsar=1)
+    # 4. Use high-quality lanczos scaling
     base_filter = (
-        "scale=1080:1920:force_original_aspect_ratio=increase,"
+        "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,"
         "crop=1080:1920,"
         "setsar=1"
     )
@@ -520,33 +528,29 @@ def cut_crop_and_burn_optimized(
         video_filter = base_filter
         logger.debug(f"Processing without subtitles | srt_path={srt_path_str or 'None'}")
     
-    cmd = _build_ffmpeg_base_cmd(
-        input_path=input_path,
-        output_path=output_path,
-        use_gpu=False,
-    )
-    cmd.insert(-2, "-ss")
-    cmd.insert(-2, str(start_time))
-    preset = _get_ffmpeg_preset()
-    quality = _get_ffmpeg_quality()
-    
-    cmd.extend([
-            "-t",
-            str(duration),
-            "-vf",
-            video_filter,
+    cmd = [
+        settings.FFMPEG_PATH,
+        "-hwaccel",
+        "auto",
+        "-ss",
+        str(start_time),
+        "-i",
+        input_path,
+        "-t",
+        str(duration),
+        "-vf",
+        video_filter,
         "-c:v",
-        video_codec,
+        "libx264",
         "-preset",
-        preset,
-            "-c:a",
-            "copy",
-            "-y",
-            output_path,
-    ])
-    
-    if _get_gpu_encoding_available():
-        cmd.extend(["-rc", "vbr", "-cq", str(quality), "-b:v", "0"])
+        "veryfast",
+        "-crf",
+        "23",
+        "-c:a",
+        "copy",
+        "-y",
+        output_path,
+    ]
     
     # Log the full command for debugging subtitle issues
     if use_subtitles:
@@ -562,4 +566,29 @@ def cut_crop_and_burn_optimized(
         cmd=cmd,
         operation=f"cut, crop and burn (codec={video_codec}, start={start_time}s, end={end_time}s, subtitles={'yes' if use_subtitles else 'no'})",
     )
+    
+    try:
+        import subprocess
+        probe_cmd = [
+            settings.FFMPEG_PATH.replace('ffmpeg', 'ffprobe'),
+            '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height,sample_aspect_ratio,display_aspect_ratio',
+            '-of', 'default=noprint_wrappers=1',
+            output_path
+        ]
+        result = subprocess.run(
+            probe_cmd,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        logger.info(
+            f"📺 Video output info | "
+            f"file={Path(output_path).name} | "
+            f"probe_output={result.stdout.strip()} | "
+            f"filter_used={video_filter[:100]}..."
+        )
+    except Exception as e:
+        logger.warning(f"Failed to probe output video: {e}")
 

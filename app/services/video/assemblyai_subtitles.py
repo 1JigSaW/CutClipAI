@@ -23,6 +23,30 @@ class AssemblyAISubtitlesService:
     def __init__(self):
         logger.info("AssemblyAI subtitles service initialized")
 
+    def generate_srt(
+        self,
+        video_path: str | Path,
+        clip_start_time: float,
+        clip_end_time: float,
+    ) -> str:
+        """
+        Generate ASS subtitle file from AssemblyAI cached data with positioning at 75% height.
+        ASS format is used instead of SRT to support precise positioning.
+
+        Args:
+            video_path: Path to source video file
+            clip_start_time: Start time of clip in source video (seconds)
+            clip_end_time: End time of clip in source video (seconds)
+
+        Returns:
+            Path to generated ASS file
+        """
+        return self.generate_srt_from_assemblyai(
+            video_path=video_path,
+            clip_start_time=clip_start_time,
+            clip_end_time=clip_end_time,
+        )
+
     def generate_srt_from_assemblyai(
         self,
         video_path: str | Path,
@@ -61,44 +85,57 @@ class AssemblyAISubtitlesService:
             if not words:
                 logger.warning("No word-level data in AssemblyAI cache")
                 return None
+            
+            logger.info(
+                f"🔍 Searching for words | "
+                f"clip_range={clip_start_time:.1f}s-{clip_end_time:.1f}s | "
+                f"total_words={len(words)} | "
+                f"cache={cache_path}"
+            )
+            
+            if words:
+                first_word = words[0]
+                last_word = words[-1]
+                logger.info(
+                    f"📊 Cache time range | "
+                    f"first={first_word.get('start', 0):.2f}s ('{first_word.get('text', '')}') | "
+                    f"last={last_word.get('end', 0):.2f}s ('{last_word.get('text', '')}')"
+                )
 
-            clip_start_ms = int(clip_start_time * 1000)
-            clip_end_ms = int(clip_end_time * 1000)
-
-            # Find words that overlap with clip range (not just start in range)
             relevant_words = []
             for w in words:
                 word_start = w.get('start', 0)
                 word_end = w.get('end', word_start)
-                # Check if word overlaps with clip range
-                if word_start < clip_end_ms and word_end > clip_start_ms:
+                if word_start < clip_end_time and word_end > clip_start_time:
                     relevant_words.append(w)
 
             if not relevant_words:
-                logger.warning(
-                    f"No words found in clip range | "
-                    f"start={clip_start_time:.1f}s | end={clip_end_time:.1f}s | "
-                    f"Will process clip without subtitles"
+                logger.error(
+                    f"❌ NO WORDS FOUND! | "
+                    f"clip={clip_start_time:.1f}s-{clip_end_time:.1f}s | "
+                    f"cache_words={len(words)} | "
+                    f"PROCESSING WITHOUT SUBTITLES"
                 )
-                # Return None instead of creating empty file
-                # FFmpeg will process without subtitles filter
                 return None
+            
+            logger.info(
+                f"✅ Found {len(relevant_words)} words for subtitles | "
+                f"clip={clip_start_time:.1f}s-{clip_end_time:.1f}s"
+            )
 
             subtitle_entries = []
             current_words = []
             current_start = None
             max_chars_per_line = 42
-            max_duration_ms = 3000
+            max_duration_sec = 3.0
 
             for word in relevant_words:
                 word_start = word.get('start', 0)
                 word_end = word.get('end', 0)
                 word_text = word.get('text', '')
 
-                # Convert absolute time to relative time (from clip start)
-                # Ensure times are non-negative (clip starts at 0)
-                word_start_rel = max(0, word_start - clip_start_ms)
-                word_end_rel = max(0, word_end - clip_start_ms)
+                word_start_rel = max(0, word_start - clip_start_time)
+                word_end_rel = max(0, word_end - clip_start_time)
 
                 if current_start is None:
                     current_start = word_start_rel
@@ -112,16 +149,15 @@ class AssemblyAISubtitlesService:
 
                 if char_count >= max_chars_per_line:
                     should_finish = True
-                elif duration >= max_duration_ms:
+                elif duration >= max_duration_sec:
                     should_finish = True
 
                 if should_finish:
-                    # Ensure minimum duration of 500ms (0.5 seconds)
-                    min_duration_ms = 500
-                    actual_end = max(word_end_rel, current_start + min_duration_ms)
+                    min_duration_sec = 0.5
+                    actual_end = max(word_end_rel, current_start + min_duration_sec)
                     subtitle_entries.append({
-                        'start_ms': current_start,
-                        'end_ms': actual_end,
+                        'start_ms': current_start * 1000,
+                        'end_ms': actual_end * 1000,
                         'text': ' '.join(current_words)
                     })
                     current_words = []
@@ -129,13 +165,12 @@ class AssemblyAISubtitlesService:
 
             if current_words and current_start is not None:
                 last_word = relevant_words[-1]
-                last_word_end_rel = last_word.get('end', clip_end_ms) - clip_start_ms
-                # Ensure minimum duration of 500ms (0.5 seconds)
-                min_duration_ms = 500
-                actual_end = max(last_word_end_rel, current_start + min_duration_ms)
+                last_word_end_rel = last_word.get('end', clip_end_time) - clip_start_time
+                min_duration_sec = 0.5
+                actual_end = max(last_word_end_rel, current_start + min_duration_sec)
                 subtitle_entries.append({
-                    'start_ms': current_start,
-                    'end_ms': actual_end,
+                    'start_ms': current_start * 1000,
+                    'end_ms': actual_end * 1000,
                     'text': ' '.join(current_words)
                 })
 

@@ -236,7 +236,9 @@ Your task:
 5. CRITICAL: Ensure that the selected clip durations are strictly between {min_duration} and {max_duration} seconds. 
    - Each clip MUST be at least {min_duration} seconds long.
    - Each clip MUST NOT exceed {max_duration} seconds.
-6. CRITICAL: You MUST select exactly 6 best moments. Each clip MUST be between 15 and 45 seconds. If the video is long enough, always aim for 6 clips. Each moment must be unique.
+6. CRITICAL: You MUST select EXACTLY 6 best moments. NO LESS, NO MORE. Each clip MUST be within the video duration (0 to {total_duration:.1f} seconds). If the video is long enough, you MUST find 6 clips. Each moment must be unique and separate from others.
+7. CRITICAL: Do NOT select timestamps beyond {total_duration:.1f} seconds.
+8. CRITICAL: Do NOT select overlapping clips. Each clip should be its own distinct segment.
 
 For each moment, provide:
 - Start time (in seconds)
