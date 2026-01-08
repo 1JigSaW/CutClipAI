@@ -3,7 +3,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.bot.keyboards.inline import get_upload_video_keyboard
-from app.bot.texts.messages import ERROR_MESSAGE, START_MESSAGE, VIDEO_REQUIREMENTS_MESSAGE
+from app.bot.texts.messages import ERROR_MESSAGE, START_MESSAGE, VIDEO_REQUIREMENTS_MESSAGE, HELP_MESSAGE
 from app.core.config import settings
 from app.core.logger import get_logger, log_error
 from app.services.billing.wallet import WalletService
@@ -64,6 +64,35 @@ async def cmd_start(
         await message.answer(
             text=ERROR_MESSAGE,
             reply_markup=ReplyKeyboardRemove(),
+        )
+
+
+@router.message(Command("help"))
+async def cmd_help(
+    message: Message,
+) -> None:
+    """
+    Handle /help command.
+
+    Args:
+        message: Telegram message object
+    """
+    try:
+        user_id = message.from_user.id if message.from_user else "unknown"
+        logger.info(
+            f"Received /help command | user_id={user_id}",
+        )
+        await message.answer(
+            text=HELP_MESSAGE,
+        )
+    except Exception as e:
+        log_error(
+            logger=logger,
+            message="Failed to handle /help command",
+            error=e,
+        )
+        await message.answer(
+            text=ERROR_MESSAGE,
         )
 
 

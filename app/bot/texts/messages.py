@@ -116,7 +116,27 @@ VIDEO_REQUIREMENTS_MESSAGE = """
 Send me a video file or link to start! 📥
 """
 
+HELP_MESSAGE = """
+📖 *How to use CutClipAI*
+
+1️⃣ **Upload Video:** Send a video file (up to 4GB), a YouTube link, or a Google Drive link.
+2️⃣ **AI Processing:** Our AI will analyze the video, find the best moments, and generate subtitles.
+3️⃣ **Get Clips:** You'll receive ready-to-use vertical (9:16) clips for Shorts, Reels, or TikTok.
+
+📋 *Requirements:*
+• Video duration: Up to 30 minutes.
+• Formats: MP4, MOV, AVI.
+• Google Drive: Make sure access is set to "Anyone with the link".
+
+💰 *Pricing:*
+• 1 generated clip = 1 coin.
+• Top up your balance using Telegram Stars in the "Balance" menu.
+
+Need help? Contact support or try sending a video now! 🚀
+"""
+
 DOWNLOADING_MESSAGE = """
+⬇️ *Downloading video from Google Drive...*
 ⬇️ *Downloading video from Google Drive...*
 
 This may take a few minutes depending on the file size.
