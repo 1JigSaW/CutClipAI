@@ -488,13 +488,15 @@ def cut_crop_and_burn_optimized(
         
         # Log the actual FFmpeg command that will be used
         # Show both original and escaped paths for debugging
+        colons_count = abs_path.count(':')
+        escaped_colons_count = escaped_path.count('\\:')
         logger.info(
             f"Adding subtitles to video filter | "
             f"original_path={abs_path} | "
             f"escaped_path={escaped_path} | "
             f"file_size={file_size} bytes | "
-            f"colons_in_path={abs_path.count(':')} | "
-            f"colons_escaped={escaped_path.count('\\\\:')}"
+            f"colons_in_path={colons_count} | "
+            f"colons_escaped={escaped_colons_count}"
         )
         
         # Verify file is readable and has valid ASS content
