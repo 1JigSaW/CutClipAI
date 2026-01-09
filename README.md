@@ -4,7 +4,6 @@ AI-powered video clipping service with automatic subtitle generation.
 
 ## Features
 
-- Automatic video trimming to 30 minutes max
 - Whisper-based transcription and subtitle generation
 - Intelligent moment selection (20-60 second clips)
 - 9:16 aspect ratio cropping for vertical videos

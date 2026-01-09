@@ -22,7 +22,7 @@ class ClippingService:
         file_path: str,
     ) -> str:
         """
-        Trim video to maximum duration (30 minutes).
+        Trim video to maximum duration (2 hours).
 
         Args:
             file_path: Path to input video file

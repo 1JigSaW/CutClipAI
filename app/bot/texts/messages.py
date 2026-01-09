@@ -97,7 +97,6 @@ VIDEO_REQUIREMENTS_MESSAGE = """
 📤 *Video Submission Guide*
 
 📋 *Formats:* MP4, MOV, AVI
-⏱️ *Max duration:* 30 minutes
 🎬 *Output:* Up to {max_clips} viral clips per video
 💰 *Cost:* 1 coin per clip
 
@@ -124,7 +123,7 @@ HELP_MESSAGE = """
 3️⃣ **Get Clips:** You'll receive ready-to-use vertical (9:16) clips for Shorts, Reels, or TikTok.
 
 📋 *Requirements:*
-• Video duration: Up to 30 minutes.
+• Video duration: Up to 2 hours.
 • Formats: MP4, MOV, AVI.
 • Google Drive: Make sure access is set to "Anyone with the link".
 
