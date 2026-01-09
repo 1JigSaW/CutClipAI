@@ -20,15 +20,30 @@ def is_youtube_url(url: str) -> bool:
 
 def get_chrome_profiles() -> list[str]:
     """
-    Get all available Chrome profile names on macOS.
+    Get all available Chrome profile names (macOS and Linux).
     """
-    chrome_path = Path.home() / "Library/Application Support/Google/Chrome"
-    profiles = ["Default"]
+    # Попробуем Linux путь (Docker/сервер)
+    chrome_path = Path.home() / ".config/google-chrome"
+    
+    # Если не Linux, попробуем macOS
+    if not chrome_path.exists():
+        chrome_path = Path.home() / "Library/Application Support/Google/Chrome"
+    
+    profiles = []
     
     if chrome_path.exists():
+        logger.info(f"Found Chrome directory: {chrome_path}")
         for item in chrome_path.iterdir():
             if item.is_dir() and (item.name.startswith("Profile ") or item.name == "Default"):
-                profiles.append(item.name)
+                # Проверяем что есть файл Cookies
+                cookies_file = item / "Cookies"
+                if cookies_file.exists():
+                    profiles.append(item.name)
+                    logger.info(f"Found Chrome profile with cookies: {item.name}")
+    
+    if not profiles:
+        profiles = ["Default"]
+        logger.warning(f"No Chrome profiles found, using Default")
     
     return sorted(list(set(profiles)), key=lambda x: (x != "Default", x))
 
