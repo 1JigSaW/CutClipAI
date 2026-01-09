@@ -1,0 +1,146 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cutclipai_postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: cutclipai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cutclipai_secure_password}
+      POSTGRES_DB: cutclipai
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cutclipai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cutclipai_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: cutclipai_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cutclipai_network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: cutclipai_api
+    restart: unless-stopped
+    command: uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --workers 2
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      DATABASE_URL: postgresql://cutclipai:${POSTGRES_PASSWORD:-cutclipai_secure_password}@postgres:5432/cutclipai
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:8000}
+      FFMPEG_PATH: /usr/bin/ffmpeg
+      FFPROBE_PATH: /usr/bin/ffprobe
+      USE_GPU_ENCODING: "false"
+      FORCE_CPU: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    networks:
+      - cutclipai_network
+    mem_limit: 4g
+    cpus: 2
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: cutclipai_worker
+    restart: unless-stopped
+    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=2 --max-tasks-per-child=3 --prefetch-multiplier=1
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      DATABASE_URL: postgresql://cutclipai:${POSTGRES_PASSWORD:-cutclipai_secure_password}@postgres:5432/cutclipai
+      FFMPEG_PATH: /usr/bin/ffmpeg
+      FFPROBE_PATH: /usr/bin/ffprobe
+      USE_GPU_ENCODING: "false"
+      FORCE_CPU: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    env_file:
+      - .env
+    networks:
+      - cutclipai_network
+    mem_limit: 18g
+    cpus: 6
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    container_name: cutclipai_bot
+    restart: unless-stopped
+    command: python3 -m app.bot.bot
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      API_BASE_URL: http://api:8000
+      DATABASE_URL: postgresql://cutclipai:${POSTGRES_PASSWORD:-cutclipai_secure_password}@postgres:5432/cutclipai
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    env_file:
+      - .env
+    networks:
+      - cutclipai_network
+    mem_limit: 1g
+    cpus: 1
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  cutclipai_network:
+    driver: bridge
+
