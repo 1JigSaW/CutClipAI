@@ -113,6 +113,7 @@ services:
       dockerfile: Dockerfile.production
     container_name: cutclipai_bot
     restart: unless-stopped
+    entrypoint: ["/app/entrypoint.sh"]
     command: python3 -m app.bot.bot
     volumes:
       - ./data:/app/data
