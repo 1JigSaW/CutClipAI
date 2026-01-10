@@ -140,7 +140,7 @@ async def download_youtube_video(
             logger.info(f"--- Attempting with cookies file: {cookies_file.name} ---")
             
             ydl_opts = {
-                'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
+                'format': 'bestvideo*+bestaudio/best',
                 'outtmpl': output_path,
                 'merge_output_format': 'mp4',
                 'cookiefile': str(cookies_file),
@@ -148,8 +148,16 @@ async def download_youtube_video(
                 'nocheckcertificate': True,
                 'quiet': False,
                 'no_warnings': False,
-                'age_limit': 21,
-                'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+                'age_limit': 99,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'ios', 'web', 'tv_embedded'],
+                        'player_skip': ['configs', 'webpage'],
+                        'skip': ['hls', 'dash'],
+                    }
+                },
+                'geo_bypass': True,
+                'geo_bypass_country': 'US',
             }
             
             try:
