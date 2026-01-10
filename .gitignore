@@ -30,6 +30,7 @@ venv.bak/
 data/output/
 data/temp/
 data/test_output/
+data/*.txt
 *.mp4
 *.avi
 *.mov
