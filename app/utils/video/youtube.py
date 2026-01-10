@@ -139,46 +139,61 @@ async def download_youtube_video(
         for cookies_file in cookies_files:
             logger.info(f"--- Attempting with cookies file: {cookies_file.name} ---")
             
-            ydl_opts = {
-                'format': 'bestvideo*+bestaudio/best',
-                'outtmpl': output_path,
-                'merge_output_format': 'mp4',
-                'cookiefile': str(cookies_file),
-                'ffmpeg_location': settings.FFMPEG_PATH,
-                'nocheckcertificate': True,
-                'quiet': False,
-                'no_warnings': False,
-                'age_limit': 99,
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['android', 'ios', 'web', 'tv_embedded'],
-                        'player_skip': ['configs', 'webpage'],
-                        'skip': ['hls', 'dash'],
-                    }
-                },
-                'geo_bypass': True,
-                'geo_bypass_country': 'US',
-            }
+            formats_to_try = [
+                'bestvideo*+bestaudio/best',
+                'best',
+                'worst',
+                '(bestvideo[ext=mp4]/bestvideo)+(bestaudio[ext=m4a]/bestaudio)',
+                'bestvideo+bestaudio',
+                'mp4',
+                None,
+            ]
             
-            try:
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(
-                    None,
-                    lambda: yt_dlp.YoutubeDL(ydl_opts).download([url])
-                )
+            for fmt in formats_to_try:
+                logger.info(f"Trying format: {fmt if fmt else 'any available'}")
                 
-                if Path(output_path).exists():
-                    logger.info(f"SUCCESS: Video downloaded using {cookies_file.name}")
-                    return True
+                ydl_opts = {
+                    'outtmpl': output_path,
+                    'merge_output_format': 'mp4',
+                    'cookiefile': str(cookies_file),
+                    'ffmpeg_location': settings.FFMPEG_PATH,
+                    'nocheckcertificate': True,
+                    'quiet': False,
+                    'no_warnings': False,
+                    'age_limit': 99,
+                    'extractor_args': {
+                        'youtube': {
+                            'player_client': ['android', 'ios', 'web', 'tv_embedded'],
+                            'player_skip': ['configs', 'webpage'],
+                            'skip': ['hls', 'dash'],
+                        }
+                    },
+                    'geo_bypass': True,
+                    'geo_bypass_country': 'US',
+                }
                 
-                if Path(str(output_path) + ".mp4").exists():
-                    Path(str(output_path) + ".mp4").rename(output_path)
-                    logger.info(f"SUCCESS: Video downloaded using {cookies_file.name}")
-                    return True
+                if fmt:
+                    ydl_opts['format'] = fmt
+                
+                try:
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(
+                        None,
+                        lambda opts=ydl_opts: yt_dlp.YoutubeDL(opts).download([url])
+                    )
                     
-            except Exception as e:
-                logger.warning(f"Cookies file {cookies_file.name} failed: {e}")
-                continue
+                    if Path(output_path).exists():
+                        logger.info(f"SUCCESS: Video downloaded using {cookies_file.name} with format {fmt if fmt else 'any'}")
+                        return True
+                    
+                    if Path(str(output_path) + ".mp4").exists():
+                        Path(str(output_path) + ".mp4").rename(output_path)
+                        logger.info(f"SUCCESS: Video downloaded using {cookies_file.name} with format {fmt if fmt else 'any'}")
+                        return True
+                        
+                except Exception as e:
+                    logger.warning(f"Format {fmt if fmt else 'any'} failed: {str(e)[:100]}")
+                    continue
         
         logger.error(f"All {len(cookies_files)} cookies files failed")
     else:
