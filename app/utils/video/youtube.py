@@ -1,12 +1,16 @@
 import re
 import asyncio
 import os
+import subprocess
+import shlex
 from pathlib import Path
 import yt_dlp
 from app.core.logger import get_logger
 from app.core.config import settings
 
 logger = get_logger(__name__)
+
+HOST_IP = os.getenv("DOCKER_HOST_IP", "172.17.0.1")
 
 YOUTUBE_REGEX = re.compile(
     r'(https?://)?(www\.)?(youtube|youtu|youtube-nocookie)\.(com|be)/(watch\?v=|embed/|v/|.+\?v=)?([^&=%\?]{11})'
@@ -62,6 +66,69 @@ def get_cookies_files() -> list[Path]:
             logger.info(f"Found cookies file: {file.name}")
     
     return sorted(cookies_files)
+
+async def download_via_host_ytdlp(
+    url: str,
+    output_path: str,
+    profile: str = None,
+) -> bool:
+    """
+    Download video using yt-dlp on HOST (not in Docker).
+    This allows Chrome profile cookies to be decrypted via host keyring.
+    """
+    logger.info(f"Attempting download via HOST yt-dlp with profile: {profile}")
+    
+    cmd_parts = [
+        "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "ConnectTimeout=5",
+        f"root@{HOST_IP}",
+        "yt-dlp",
+        "--format", "bestvideo+bestaudio/best",
+        "--output", output_path,
+        "--merge-output-format", "mp4",
+        "--no-check-certificate",
+    ]
+    
+    if profile:
+        cmd_parts.extend([
+            "--cookies-from-browser", f"chrome:{profile}",
+        ])
+    
+    cmd_parts.extend([
+        "--user-agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "--referer", "https://www.youtube.com/",
+        url
+    ])
+    
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: subprocess.run(
+                cmd_parts,
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+        )
+        
+        if result.returncode == 0:
+            logger.info(f"HOST yt-dlp SUCCESS with profile {profile}")
+            logger.debug(f"Output: {result.stdout}")
+            return True
+        else:
+            logger.warning(f"HOST yt-dlp FAILED with profile {profile}")
+            logger.warning(f"Error: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        logger.error(f"HOST yt-dlp timeout for profile {profile}")
+        return False
+    except Exception as e:
+        logger.error(f"HOST yt-dlp exception: {e}")
+        return False
 
 async def download_youtube_video(
     url: str,
@@ -123,43 +190,30 @@ async def download_youtube_video(
     else:
         logger.warning("No cookies files found in /app/data/")
     
-    # Try 2: Chrome profiles (usually doesn't work in Docker due to keyring)
+    # Try 2: Chrome profiles via HOST yt-dlp (can decrypt cookies via keyring!)
     profiles = get_chrome_profiles()
-    if profiles and len(profiles) > 1:  # Only try if we actually found profiles
-        logger.info(f"Trying Chrome profiles: {profiles}")
+    if profiles:
+        logger.info(f"Trying Chrome profiles via HOST yt-dlp: {profiles}")
 
         for profile in profiles:
-            logger.info(f"--- Attempting with profile: {profile} ---")
-            
-            ydl_opts = {
-                'format': 'bestvideo+bestaudio/best',
-                'outtmpl': output_path,
-                'merge_output_format': 'mp4',
-                'cookiesfrombrowser': ('chrome', profile),
-                'ffmpeg_location': settings.FFMPEG_PATH,
-                'nocheckcertificate': True,
-                'quiet': False,
-                'no_warnings': False,
-            }
+            logger.info(f"--- Attempting with HOST profile: {profile} ---")
             
             try:
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(
-                    None,
-                    lambda: yt_dlp.YoutubeDL(ydl_opts).download([url])
+                success = await download_via_host_ytdlp(
+                    url=url,
+                    output_path=output_path,
+                    profile=profile
                 )
                 
-                if Path(output_path).exists():
-                    logger.info(f"SUCCESS: Video downloaded using profile {profile}")
-                    return True
-                
-                if Path(str(output_path) + ".mp4").exists():
-                    Path(str(output_path) + ".mp4").rename(output_path)
+                if success and Path(output_path).exists():
+                    logger.info(f"SUCCESS: Video downloaded using HOST profile {profile}")
                     return True
                     
             except Exception as e:
-                logger.warning(f"Profile {profile} failed: {e}")
+                logger.warning(f"HOST profile {profile} failed: {e}")
                 continue
+        
+        logger.error("All HOST Chrome profiles failed")
     
     # Try 3: Without authentication (works for public videos)
     logger.info("--- Attempting without authentication ---")

@@ -118,13 +118,15 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - /root/.config/google-chrome:/root/.config/google-chrome:ro
-      - /root/.local/share/keyrings:/root/.local/share/keyrings:ro
+      - bot_ssh:/root/.ssh
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       API_BASE_URL: http://api:8000
       DATABASE_URL: postgresql://cutclipai:${POSTGRES_PASSWORD:-cutclipai_secure_password}@postgres:5432/cutclipai
+      DOCKER_HOST_IP: 172.17.0.1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -141,6 +143,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  bot_ssh:
     driver: local
 
 networks:
