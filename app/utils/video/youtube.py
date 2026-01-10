@@ -140,7 +140,7 @@ async def download_youtube_video(
             logger.info(f"--- Attempting with cookies file: {cookies_file.name} ---")
             
             ydl_opts = {
-                'format': 'bestvideo+bestaudio/best',
+                'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
                 'outtmpl': output_path,
                 'merge_output_format': 'mp4',
                 'cookiefile': str(cookies_file),
@@ -148,14 +148,8 @@ async def download_youtube_video(
                 'nocheckcertificate': True,
                 'quiet': False,
                 'no_warnings': False,
-                # Притворяемся обычным браузером
-                'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                'referer': 'https://www.youtube.com/',
-                'http_headers': {
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-us,en;q=0.5',
-                    'Sec-Fetch-Mode': 'navigate',
-                },
+                'age_limit': 21,
+                'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
             }
             
             try:
