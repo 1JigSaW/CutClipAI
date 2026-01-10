@@ -78,29 +78,21 @@ async def download_via_host_ytdlp(
     """
     logger.info(f"Attempting download via HOST yt-dlp with profile: {profile}")
     
+    cmd_base = f"yt-dlp --format bestvideo+bestaudio/best --output {shlex.quote(output_path)} --merge-output-format mp4 --no-check-certificate"
+    
+    if profile:
+        cmd_base += f" --cookies-from-browser chrome:{profile}"
+    
+    cmd_base += f" {shlex.quote(url)}"
+    
     cmd_parts = [
         "ssh",
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
         "-o", "ConnectTimeout=5",
         f"root@{HOST_IP}",
-        "yt-dlp",
-        "--format", "bestvideo+bestaudio/best",
-        "--output", output_path,
-        "--merge-output-format", "mp4",
-        "--no-check-certificate",
+        cmd_base
     ]
-    
-    if profile:
-        cmd_parts.extend([
-            "--cookies-from-browser", f"chrome:{profile}",
-        ])
-    
-    cmd_parts.extend([
-        "--user-agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "--referer", "https://www.youtube.com/",
-        url
-    ])
     
     try:
         loop = asyncio.get_event_loop()
