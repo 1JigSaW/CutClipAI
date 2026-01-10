@@ -139,20 +139,55 @@ async def download_youtube_video(
         for cookies_file in cookies_files:
             logger.info(f"--- Attempting with cookies file: {cookies_file.name} ---")
             
-            formats_to_try = [
-                'bestvideo*+bestaudio/best',
-                'best',
-                'worst',
-                '(bestvideo[ext=mp4]/bestvideo)+(bestaudio[ext=m4a]/bestaudio)',
-                'bestvideo+bestaudio',
-                'mp4',
-                None,
-            ]
+            ydl_opts_base = {
+                'cookiefile': str(cookies_file),
+                'ffmpeg_location': settings.FFMPEG_PATH,
+                'nocheckcertificate': True,
+                'quiet': True,
+                'no_warnings': True,
+                'age_limit': 99,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'ios', 'web', 'tv_embedded'],
+                    }
+                },
+                'geo_bypass': True,
+                'geo_bypass_country': 'US',
+            }
             
-            for fmt in formats_to_try:
-                logger.info(f"Trying format: {fmt if fmt else 'any available'}")
+            try:
+                logger.info("Getting list of available formats...")
+                loop = asyncio.get_event_loop()
+                info = await loop.run_in_executor(
+                    None,
+                    lambda: yt_dlp.YoutubeDL(ydl_opts_base).extract_info(
+                        url=url,
+                        download=False
+                    )
+                )
                 
-                ydl_opts = {
+                if not info:
+                    logger.warning(f"No info extracted for {cookies_file.name}")
+                    continue
+                
+                formats = info.get('formats', [])
+                if not formats:
+                    logger.warning(f"No formats available for {cookies_file.name}")
+                    continue
+                
+                video_formats = [f for f in formats if f.get('vcodec') != 'none' and f.get('acodec') != 'none']
+                if not video_formats:
+                    video_formats = [f for f in formats if f.get('vcodec') != 'none']
+                
+                if not video_formats:
+                    logger.warning(f"No video formats found, only: {[f.get('format_id') for f in formats[:5]]}")
+                    continue
+                
+                format_id = video_formats[0].get('format_id')
+                logger.info(f"Using first available format: {format_id} ({video_formats[0].get('format_note', 'unknown')})")
+                
+                ydl_opts_download = {
+                    'format': format_id,
                     'outtmpl': output_path,
                     'merge_output_format': 'mp4',
                     'cookiefile': str(cookies_file),
@@ -160,40 +195,25 @@ async def download_youtube_video(
                     'nocheckcertificate': True,
                     'quiet': False,
                     'no_warnings': False,
-                    'age_limit': 99,
-                    'extractor_args': {
-                        'youtube': {
-                            'player_client': ['android', 'ios', 'web', 'tv_embedded'],
-                            'player_skip': ['configs', 'webpage'],
-                            'skip': ['hls', 'dash'],
-                        }
-                    },
-                    'geo_bypass': True,
-                    'geo_bypass_country': 'US',
                 }
                 
-                if fmt:
-                    ydl_opts['format'] = fmt
+                await loop.run_in_executor(
+                    None,
+                    lambda: yt_dlp.YoutubeDL(ydl_opts_download).download([url])
+                )
                 
-                try:
-                    loop = asyncio.get_event_loop()
-                    await loop.run_in_executor(
-                        None,
-                        lambda opts=ydl_opts: yt_dlp.YoutubeDL(opts).download([url])
-                    )
+                if Path(output_path).exists():
+                    logger.info(f"SUCCESS: Video downloaded using {cookies_file.name}")
+                    return True
+                
+                if Path(str(output_path) + ".mp4").exists():
+                    Path(str(output_path) + ".mp4").rename(output_path)
+                    logger.info(f"SUCCESS: Video downloaded using {cookies_file.name}")
+                    return True
                     
-                    if Path(output_path).exists():
-                        logger.info(f"SUCCESS: Video downloaded using {cookies_file.name} with format {fmt if fmt else 'any'}")
-                        return True
-                    
-                    if Path(str(output_path) + ".mp4").exists():
-                        Path(str(output_path) + ".mp4").rename(output_path)
-                        logger.info(f"SUCCESS: Video downloaded using {cookies_file.name} with format {fmt if fmt else 'any'}")
-                        return True
-                        
-                except Exception as e:
-                    logger.warning(f"Format {fmt if fmt else 'any'} failed: {str(e)[:100]}")
-                    continue
+            except Exception as e:
+                logger.warning(f"Cookies file {cookies_file.name} failed: {str(e)[:200]}")
+                continue
         
         logger.error(f"All {len(cookies_files)} cookies files failed")
     else:
