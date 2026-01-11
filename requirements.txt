@@ -7,6 +7,7 @@ alembic==1.17.2
 amqp==5.3.1
 annotated-types==0.7.0
 anyio==4.11.0
+apify-client==1.9.0
 assemblyai==0.48.3
 attrs==25.4.0
 billiard==4.2.3

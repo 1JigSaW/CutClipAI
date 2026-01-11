@@ -7,6 +7,7 @@ from pathlib import Path
 import yt_dlp
 from app.core.logger import get_logger
 from app.core.config import settings
+from app.services.video.apify_downloader import apify_downloader
 
 logger = get_logger(__name__)
 
@@ -127,11 +128,25 @@ async def download_youtube_video(
     output_path: str,
 ) -> bool:
     """
-    Download video from YouTube using cookies files or Chrome profiles via yt-dlp.
-    Priority: 1) Cookies files -> 2) Chrome profiles -> 3) No auth
+    Download video from YouTube using Apify or yt-dlp.
+    Priority: 1) Apify -> 2) Cookies files -> 3) Chrome profiles -> 4) No auth
     """
     
-    # Try 1: Use cookies files (WORKS IN DOCKER)
+    # Try 1: Use Apify (BEST FOR AGE-RESTRICTED VIDEOS!)
+    if apify_downloader.is_available():
+        logger.info("🚀 Trying Apify downloader...")
+        try:
+            if await apify_downloader.download_video(url, output_path):
+                logger.info("✅ SUCCESS: Video downloaded via Apify")
+                return True
+            else:
+                logger.warning("⚠️ Apify download failed, falling back to yt-dlp")
+        except Exception as e:
+            logger.warning(f"⚠️ Apify exception: {e}, falling back to yt-dlp")
+    else:
+        logger.info("⏭️ Apify not configured, skipping")
+    
+    # Try 2: Use cookies files (WORKS IN DOCKER)
     cookies_files = get_cookies_files()
     if cookies_files:
         logger.info(f"Found {len(cookies_files)} cookies files, trying each...")
@@ -219,7 +234,7 @@ async def download_youtube_video(
     else:
         logger.warning("No cookies files found in /app/data/")
     
-    # Try 2: Chrome profiles via HOST yt-dlp (can decrypt cookies via keyring!)
+    # Try 3: Chrome profiles via HOST yt-dlp (can decrypt cookies via keyring!)
     profiles = get_chrome_profiles()
     if profiles:
         logger.info(f"Trying Chrome profiles via HOST yt-dlp: {profiles}")
@@ -244,7 +259,7 @@ async def download_youtube_video(
         
         logger.error("All HOST Chrome profiles failed")
     
-    # Try 3: Without authentication (works for public videos)
+    # Try 4: Without authentication (works for public videos)
     logger.info("--- Attempting without authentication ---")
     ydl_opts = {
         'format': 'bestvideo+bestaudio/best',
