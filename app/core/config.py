@@ -68,8 +68,6 @@ class Settings(BaseSettings):
     # AssemblyAI for transcription
     ASSEMBLY_AI_API_KEY: Optional[str] = None
     
-    APIFY_API_TOKEN: Optional[str] = None
-    
     # LLM API for analysis (supports multiple providers)
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o-mini"  # OpenAI model name (for backward compatibility)
@@ -88,6 +86,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 
 settings = Settings()
