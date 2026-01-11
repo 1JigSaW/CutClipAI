@@ -34,7 +34,7 @@ class ApifyYouTubeDownloader:
             logger.info(f"🚀 Starting Apify download for: {url}")
             
             run_input = {
-                "startUrls": [url],
+                "startUrls": [{"url": url}],
                 "maxResults": 1,
                 "maxResultsShorts": 0,
                 "maxResultStreams": 0,
