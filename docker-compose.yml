@@ -54,6 +54,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./app:/app/app
+      - /root/.config/google-chrome:/root/.config/google-chrome:ro
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -86,6 +87,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./app:/app/app
+      - /root/.config/google-chrome:/root/.config/google-chrome:ro
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
