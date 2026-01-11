@@ -55,6 +55,7 @@ services:
       - ./data:/app/data
       - ./app:/app/app
       - /root/.config/google-chrome:/root/.config/google-chrome:ro
+      - /root/.local/share/keyrings:/root/.local/share/keyrings:ro
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379

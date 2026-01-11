@@ -7,6 +7,9 @@ RUN apt-get update && apt-get install -y \
     python3.10 \
     python3-pip \
     ffmpeg \
+    gnome-keyring \
+    dbus-x11 \
+    libsecret-1-0 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN ln -sf /usr/bin/python3.10 /usr/bin/python && \
