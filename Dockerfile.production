@@ -12,6 +12,9 @@ RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
     openssh-client \
+    gnome-keyring \
+    dbus-x11 \
+    libsecret-1-0 \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
@@ -49,8 +52,9 @@ COPY . .
 
 RUN mkdir -p /app/data/temp /app/data/output /app/logs && \
     mkdir -p /root/.config/google-chrome/Default && \
+    mkdir -p /root/.local/share/keyrings && \
     chmod -R 777 /app/data /app/logs && \
-    chmod +x /app/entrypoint.sh
+    chmod +x /app/entrypoint.sh /app/init_keyring.sh
 
 ENV PYTHONPATH=/app
 

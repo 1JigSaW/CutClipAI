@@ -79,11 +79,12 @@ services:
       dockerfile: Dockerfile.production
     container_name: cutclipai_worker
     restart: unless-stopped
-    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=2 --max-tasks-per-child=3 --prefetch-multiplier=1
+    command: sh -c "/app/init_keyring.sh && celery -A app.core.celery_app worker --loglevel=info --concurrency=2 --max-tasks-per-child=3 --prefetch-multiplier=1"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./data/chrome_profile:/root/.config/google-chrome
+      - ./data/keyring:/root/.local/share/keyrings
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -94,6 +95,7 @@ services:
       FFPROBE_PATH: /usr/bin/ffprobe
       USE_GPU_ENCODING: "false"
       FORCE_CPU: "true"
+      DBUS_SESSION_BUS_ADDRESS: unix:path=/tmp/dbus-session
     depends_on:
       postgres:
         condition: service_healthy
