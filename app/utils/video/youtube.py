@@ -13,6 +13,25 @@ from app.core.config import settings
 logger = get_logger(__name__)
 
 
+def get_cookies_file_path() -> Optional[Path]:
+    if settings.YOUTUBE_COOKIES_FILE and settings.YOUTUBE_COOKIES_FILE.exists():
+        return settings.YOUTUBE_COOKIES_FILE
+    
+    default_paths = [
+        Path("./data/cookies.txt"),
+        Path("./data/cookies1.txt"),
+        Path("./data/cookies2.txt"),
+        Path("./cookies.txt"),
+    ]
+    
+    for path in default_paths:
+        if path.exists() and path.is_file():
+            logger.info(f"Found cookies file: {path}")
+            return path
+    
+    return None
+
+
 def get_chrome_profiles() -> List[str]:
     chrome_path_macos = Path.home() / "Library/Application Support/Google/Chrome"
     chrome_path_linux = Path.home() / ".config/google-chrome"
@@ -197,7 +216,49 @@ def get_youtube_video_info(
         logger.warning(f"Standard info extraction failed: {error_msg}")
         
         if "Sign in to confirm your age" in error_msg or "age" in error_msg.lower():
-            logger.info("Age-restricted video detected, trying with Chrome profiles...")
+            logger.info("Age-restricted video detected, trying with cookies file...")
+            
+            cookies_file = get_cookies_file_path()
+            if cookies_file:
+                try:
+                    logger.info(f"Using cookies file: {cookies_file}")
+                    
+                    ydl_opts_with_cookies = {
+                        'quiet': True,
+                        'no_warnings': True,
+                        'extractaudio': False,
+                        'skip_download': True,
+                        'socket_timeout': 30,
+                        'cookiefile': str(cookies_file),
+                        'nocheckcertificate': True,
+                    }
+                    
+                    with yt_dlp.YoutubeDL(params=ydl_opts_with_cookies) as ydl:
+                        info = ydl.extract_info(url=url, download=False)
+                        
+                        logger.info(f"Successfully extracted info using cookies file")
+                        return {
+                            'id': info.get('id'),
+                            'title': info.get('title'),
+                            'description': info.get('description', ''),
+                            'duration': info.get('duration'),
+                            'uploader': info.get('uploader'),
+                            'upload_date': info.get('upload_date'),
+                            'view_count': info.get('view_count'),
+                            'like_count': info.get('like_count'),
+                            'thumbnail': info.get('thumbnail'),
+                            'format_id': info.get('format_id'),
+                            'resolution': info.get('resolution'),
+                            'fps': info.get('fps'),
+                            'filesize': info.get('filesize'),
+                        }
+                
+                except Exception as cookies_error:
+                    logger.warning(f"Cookies file method failed: {cookies_error}")
+            else:
+                logger.info("No cookies file found, trying Chrome profiles...")
+            
+            logger.info("Trying with Chrome profiles...")
             chrome_profiles = get_chrome_profiles()
             
             if not chrome_profiles:
@@ -348,12 +409,68 @@ async def download_youtube_video(
                     logger.warning(f"All retry attempts failed for format: {format_string}")
                     break
 
-    logger.info("Standard download failed, trying with Chrome profiles...")
+    logger.info("Standard download failed, trying alternative methods...")
+    
+    cookies_file = get_cookies_file_path()
+    if cookies_file:
+        logger.info(f"Trying with cookies file: {cookies_file}")
+        
+        for format_string in format_options:
+            try:
+                logger.debug(f"Trying format with cookies file: {format_string}")
+                
+                output_path_obj = Path(output_path)
+                ydl_opts_cookies = {
+                    'format': format_string,
+                    'outtmpl': str(output_path_obj),
+                    'merge_output_format': 'mp4',
+                    'cookiefile': str(cookies_file),
+                    'nocheckcertificate': True,
+                    'quiet': True,
+                    'no_warnings': False,
+                    'socket_timeout': 30,
+                    'retries': 3,
+                    'fragment_retries': 3,
+                    'ffmpeg_location': settings.FFMPEG_PATH,
+                }
+                
+                def download_with_cookies():
+                    with yt_dlp.YoutubeDL(params=ydl_opts_cookies) as ydl:
+                        ydl.download(url_list=[url])
+                
+                await loop.run_in_executor(None, download_with_cookies)
+                
+                if output_path_obj.exists():
+                    file_size = output_path_obj.stat().st_size
+                    logger.info(f"Download successful with cookies file + format '{format_string}': ({file_size // 1024 // 1024}MB)")
+                    return True
+                
+                for ext in ['.mp4', '.mkv', '.webm']:
+                    test_path = Path(str(output_path_obj) + ext)
+                    if test_path.exists():
+                        if test_path != output_path_obj:
+                            test_path.rename(output_path_obj)
+                        file_size = output_path_obj.stat().st_size
+                        logger.info(f"Download successful with cookies file + format '{format_string}': ({file_size // 1024 // 1024}MB)")
+                        return True
+                    
+                logger.debug(f"No file found with format '{format_string}'")
+                
+            except Exception as e:
+                error_msg = str(e)
+                if "Requested format is not available" in error_msg:
+                    logger.debug(f"Format '{format_string}' not available with cookies file, trying next...")
+                    continue
+                else:
+                    logger.warning(f"Cookies file with format '{format_string}' failed: {e}")
+                continue
+        
+        logger.warning("All formats failed with cookies file")
     
     chrome_profiles = get_chrome_profiles()
     if not chrome_profiles:
         logger.warning("No Chrome profiles available")
-        logger.error("All download methods failed (standard + no Chrome profiles)")
+        logger.error("All download methods failed (standard + cookies file + no Chrome profiles)")
         return False
     
     logger.info(f"Found {len(chrome_profiles)} Chrome profiles")
