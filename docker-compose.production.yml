@@ -83,6 +83,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+      - ./data/chrome_profile:/root/.config/google-chrome
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
