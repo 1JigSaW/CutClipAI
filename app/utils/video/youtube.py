@@ -152,146 +152,65 @@ def get_youtube_video_info(
         logger.error(f"Invalid YouTube URL: {url}")
         return None
 
-    try:
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-            'socket_timeout': 30,
-            'ignoreerrors': True,
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Connection': 'keep-alive',
-            },
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android', 'web'],
-                }
-            },
-            'nocheckcertificate': True,
-        }
-
-        with yt_dlp.YoutubeDL(params=ydl_opts) as ydl:
-            info = ydl.extract_info(url=url, download=False)
+    chrome_profiles = get_chrome_profiles()
+    profiles_to_try = chrome_profiles if chrome_profiles else [None]
+    
+    if chrome_profiles:
+        logger.info(f"Found {len(chrome_profiles)} Chrome profiles")
+    else:
+        logger.info("No Chrome profiles found, will try without cookies")
+    
+    for profile in profiles_to_try:
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'skip_download': True,
+                'socket_timeout': 30,
+                'nocheckcertificate': True,
+                'extract_flat': False,
+                'format': None,
+            }
             
-            if info:
-                return {
-                    'id': info.get('id'),
-                    'title': info.get('title'),
-                    'description': info.get('description', ''),
-                    'duration': info.get('duration'),
-                    'uploader': info.get('uploader'),
-                    'upload_date': info.get('upload_date'),
-                    'view_count': info.get('view_count'),
-                    'like_count': info.get('like_count'),
-                    'thumbnail': info.get('thumbnail'),
-                    'format_id': info.get('format_id'),
-                    'resolution': info.get('resolution'),
-                    'fps': info.get('fps'),
-                    'filesize': info.get('filesize'),
-                }
-
-    except Exception as e:
-        error_msg = str(e)
-        logger.warning(f"Standard info extraction failed: {error_msg}")
-        
-        if "Sign in to confirm your age" in error_msg or "age" in error_msg.lower() or "needs_auth" in error_msg.lower():
-            logger.info("Age-restricted video detected, trying with Chrome profiles...")
-            chrome_profiles = get_chrome_profiles()
+            if profile:
+                ydl_opts['cookiesfrombrowser'] = ('chrome', profile)
+                logger.debug(f"Trying with Chrome profile: {profile}")
+            else:
+                logger.debug("Trying without cookies")
             
-            if not chrome_profiles:
-                logger.error("No Chrome profiles available for age-restricted video")
-                return None
-            
-            logger.info(f"Found {len(chrome_profiles)} Chrome profiles: {chrome_profiles}")
-            
-            for profile in chrome_profiles:
-                try:
-                    logger.info(f"Trying Chrome profile: {profile}")
-                    
-                    ydl_opts_with_cookies = {
-                        'quiet': False,
-                        'no_warnings': False,
-                        'skip_download': True,
-                        'socket_timeout': 30,
-                        'cookiesfrombrowser': ('chrome', profile),
-                        'nocheckcertificate': True,
-                        'ignoreerrors': True,
-                        'extract_flat': False,
+            with yt_dlp.YoutubeDL(params=ydl_opts) as ydl:
+                ie = ydl.get_info_extractor('Youtube')
+                ie.set_downloader(ydl)
+                info = ie.extract(url)
+                
+                if info and info.get('title'):
+                    profile_msg = f"with profile: {profile}" if profile else "without cookies"
+                    logger.info(f"✓ Successfully extracted info {profile_msg}")
+                    return {
+                        'id': info.get('id'),
+                        'title': info.get('title'),
+                        'description': info.get('description', ''),
+                        'duration': info.get('duration'),
+                        'uploader': info.get('uploader'),
+                        'upload_date': info.get('upload_date'),
+                        'view_count': info.get('view_count'),
+                        'like_count': info.get('like_count'),
+                        'thumbnail': info.get('thumbnail'),
+                        'format_id': info.get('format_id'),
+                        'resolution': info.get('resolution'),
+                        'fps': info.get('fps'),
+                        'filesize': info.get('filesize'),
                     }
                     
-                    try:
-                        with yt_dlp.YoutubeDL(params=ydl_opts_with_cookies) as ydl:
-                            info = ydl.extract_info(url=url, download=False)
-                            
-                            if info and info.get('title'):
-                                logger.info(f"✓ Successfully extracted info using Chrome profile: {profile}")
-                                return {
-                                    'id': info.get('id'),
-                                    'title': info.get('title'),
-                                    'description': info.get('description', ''),
-                                    'duration': info.get('duration'),
-                                    'uploader': info.get('uploader'),
-                                    'upload_date': info.get('upload_date'),
-                                    'view_count': info.get('view_count'),
-                                    'like_count': info.get('like_count'),
-                                    'thumbnail': info.get('thumbnail'),
-                                    'format_id': info.get('format_id'),
-                                    'resolution': info.get('resolution'),
-                                    'fps': info.get('fps'),
-                                    'filesize': info.get('filesize'),
-                                }
-                    except yt_dlp.utils.DownloadError as de:
-                        error_str = str(de)
-                        if 'format' in error_str.lower() or 'requested format is not available' in error_str.lower():
-                            logger.info(f"✓ Format validation failed but age-restriction passed with profile: {profile}")
-                            logger.info("Trying alternative method to extract basic info...")
-                            
-                            try:
-                                ydl_opts_minimal = {
-                                    'quiet': True,
-                                    'skip_download': True,
-                                    'cookiesfrombrowser': ('chrome', profile),
-                                    'nocheckcertificate': True,
-                                    'format': None,
-                                }
-                                
-                                with yt_dlp.YoutubeDL(params=ydl_opts_minimal) as ydl_min:
-                                    ie = ydl_min.get_info_extractor('Youtube')
-                                    ie.set_downloader(ydl_min)
-                                    ie_result = ie.extract(url)
-                                    
-                                    if ie_result and ie_result.get('title'):
-                                        logger.info(f"✓ Successfully extracted basic info using Chrome profile: {profile}")
-                                        return {
-                                            'id': ie_result.get('id'),
-                                            'title': ie_result.get('title'),
-                                            'description': ie_result.get('description', ''),
-                                            'duration': ie_result.get('duration'),
-                                            'uploader': ie_result.get('uploader'),
-                                            'upload_date': ie_result.get('upload_date'),
-                                            'view_count': ie_result.get('view_count'),
-                                            'like_count': ie_result.get('like_count'),
-                                            'thumbnail': ie_result.get('thumbnail'),
-                                            'format_id': ie_result.get('format_id'),
-                                            'resolution': ie_result.get('resolution'),
-                                            'fps': ie_result.get('fps'),
-                                            'filesize': ie_result.get('filesize'),
-                                        }
-                            except Exception as alt_error:
-                                logger.debug(f"Alternative method failed: {alt_error}")
-                                pass
-                        raise
-                
-                except Exception as profile_error:
-                    logger.warning(f"Profile '{profile}' failed: {profile_error}")
-                    continue
-            
-            logger.error(f"All methods failed to extract video info (standard + {len(chrome_profiles)} profiles)")
-        
-        return None
+        except Exception as e:
+            error_msg = str(e)
+            if profile:
+                logger.debug(f"Profile '{profile}' failed: {error_msg[:200]}")
+            else:
+                logger.debug(f"No cookies attempt failed: {error_msg[:200]}")
+            continue
+    
+    logger.error(f"All methods failed to extract video info (tried {len(profiles_to_try)} methods)")
+    return None
 
 
 def get_youtube_video_title(
