@@ -156,9 +156,9 @@ def get_youtube_video_info(
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
-            'extractaudio': False,
             'skip_download': True,
             'socket_timeout': 30,
+            'ignoreerrors': True,
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -175,28 +175,29 @@ def get_youtube_video_info(
 
         with yt_dlp.YoutubeDL(params=ydl_opts) as ydl:
             info = ydl.extract_info(url=url, download=False)
-
-            return {
-                'id': info.get('id'),
-                'title': info.get('title'),
-                'description': info.get('description', ''),
-                'duration': info.get('duration'),
-                'uploader': info.get('uploader'),
-                'upload_date': info.get('upload_date'),
-                'view_count': info.get('view_count'),
-                'like_count': info.get('like_count'),
-                'thumbnail': info.get('thumbnail'),
-                'format_id': info.get('format_id'),
-                'resolution': info.get('resolution'),
-                'fps': info.get('fps'),
-                'filesize': info.get('filesize'),
-            }
+            
+            if info:
+                return {
+                    'id': info.get('id'),
+                    'title': info.get('title'),
+                    'description': info.get('description', ''),
+                    'duration': info.get('duration'),
+                    'uploader': info.get('uploader'),
+                    'upload_date': info.get('upload_date'),
+                    'view_count': info.get('view_count'),
+                    'like_count': info.get('like_count'),
+                    'thumbnail': info.get('thumbnail'),
+                    'format_id': info.get('format_id'),
+                    'resolution': info.get('resolution'),
+                    'fps': info.get('fps'),
+                    'filesize': info.get('filesize'),
+                }
 
     except Exception as e:
         error_msg = str(e)
         logger.warning(f"Standard info extraction failed: {error_msg}")
         
-        if "Sign in to confirm your age" in error_msg or "age" in error_msg.lower():
+        if "Sign in to confirm your age" in error_msg or "age" in error_msg.lower() or "needs_auth" in error_msg.lower():
             logger.info("Age-restricted video detected, trying with Chrome profiles...")
             chrome_profiles = get_chrome_profiles()
             
@@ -204,44 +205,45 @@ def get_youtube_video_info(
                 logger.error("No Chrome profiles available for age-restricted video")
                 return None
             
-            logger.info(f"Found {len(chrome_profiles)} Chrome profiles")
+            logger.info(f"Found {len(chrome_profiles)} Chrome profiles: {chrome_profiles}")
             
             for profile in chrome_profiles:
                 try:
-                    logger.debug(f"Trying Chrome profile: {profile}")
+                    logger.info(f"Trying Chrome profile: {profile}")
                     
                     ydl_opts_with_cookies = {
-                        'quiet': True,
-                        'no_warnings': True,
-                        'extractaudio': False,
+                        'quiet': False,
+                        'no_warnings': False,
                         'skip_download': True,
                         'socket_timeout': 30,
                         'cookiesfrombrowser': ('chrome', profile),
                         'nocheckcertificate': True,
+                        'ignoreerrors': True,
                     }
                     
                     with yt_dlp.YoutubeDL(params=ydl_opts_with_cookies) as ydl:
                         info = ydl.extract_info(url=url, download=False)
                         
-                        logger.info(f"Successfully extracted info using Chrome profile: {profile}")
-                        return {
-                            'id': info.get('id'),
-                            'title': info.get('title'),
-                            'description': info.get('description', ''),
-                            'duration': info.get('duration'),
-                            'uploader': info.get('uploader'),
-                            'upload_date': info.get('upload_date'),
-                            'view_count': info.get('view_count'),
-                            'like_count': info.get('like_count'),
-                            'thumbnail': info.get('thumbnail'),
-                            'format_id': info.get('format_id'),
-                            'resolution': info.get('resolution'),
-                            'fps': info.get('fps'),
-                            'filesize': info.get('filesize'),
-                        }
+                        if info and info.get('title'):
+                            logger.info(f"✓ Successfully extracted info using Chrome profile: {profile}")
+                            return {
+                                'id': info.get('id'),
+                                'title': info.get('title'),
+                                'description': info.get('description', ''),
+                                'duration': info.get('duration'),
+                                'uploader': info.get('uploader'),
+                                'upload_date': info.get('upload_date'),
+                                'view_count': info.get('view_count'),
+                                'like_count': info.get('like_count'),
+                                'thumbnail': info.get('thumbnail'),
+                                'format_id': info.get('format_id'),
+                                'resolution': info.get('resolution'),
+                                'fps': info.get('fps'),
+                                'filesize': info.get('filesize'),
+                            }
                 
                 except Exception as profile_error:
-                    logger.debug(f"Profile '{profile}' failed: {profile_error}")
+                    logger.warning(f"Profile '{profile}' failed: {profile_error}")
                     continue
             
             logger.error(f"All methods failed to extract video info (standard + {len(chrome_profiles)} profiles)")
