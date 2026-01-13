@@ -219,28 +219,71 @@ def get_youtube_video_info(
                         'cookiesfrombrowser': ('chrome', profile),
                         'nocheckcertificate': True,
                         'ignoreerrors': True,
+                        'extract_flat': False,
                     }
                     
-                    with yt_dlp.YoutubeDL(params=ydl_opts_with_cookies) as ydl:
-                        info = ydl.extract_info(url=url, download=False)
-                        
-                        if info and info.get('title'):
-                            logger.info(f"✓ Successfully extracted info using Chrome profile: {profile}")
-                            return {
-                                'id': info.get('id'),
-                                'title': info.get('title'),
-                                'description': info.get('description', ''),
-                                'duration': info.get('duration'),
-                                'uploader': info.get('uploader'),
-                                'upload_date': info.get('upload_date'),
-                                'view_count': info.get('view_count'),
-                                'like_count': info.get('like_count'),
-                                'thumbnail': info.get('thumbnail'),
-                                'format_id': info.get('format_id'),
-                                'resolution': info.get('resolution'),
-                                'fps': info.get('fps'),
-                                'filesize': info.get('filesize'),
-                            }
+                    try:
+                        with yt_dlp.YoutubeDL(params=ydl_opts_with_cookies) as ydl:
+                            info = ydl.extract_info(url=url, download=False)
+                            
+                            if info and info.get('title'):
+                                logger.info(f"✓ Successfully extracted info using Chrome profile: {profile}")
+                                return {
+                                    'id': info.get('id'),
+                                    'title': info.get('title'),
+                                    'description': info.get('description', ''),
+                                    'duration': info.get('duration'),
+                                    'uploader': info.get('uploader'),
+                                    'upload_date': info.get('upload_date'),
+                                    'view_count': info.get('view_count'),
+                                    'like_count': info.get('like_count'),
+                                    'thumbnail': info.get('thumbnail'),
+                                    'format_id': info.get('format_id'),
+                                    'resolution': info.get('resolution'),
+                                    'fps': info.get('fps'),
+                                    'filesize': info.get('filesize'),
+                                }
+                    except yt_dlp.utils.DownloadError as de:
+                        error_str = str(de)
+                        if 'format' in error_str.lower() or 'requested format is not available' in error_str.lower():
+                            logger.info(f"✓ Format validation failed but age-restriction passed with profile: {profile}")
+                            logger.info("Trying alternative method to extract basic info...")
+                            
+                            try:
+                                ydl_opts_minimal = {
+                                    'quiet': True,
+                                    'skip_download': True,
+                                    'cookiesfrombrowser': ('chrome', profile),
+                                    'nocheckcertificate': True,
+                                    'format': None,
+                                }
+                                
+                                with yt_dlp.YoutubeDL(params=ydl_opts_minimal) as ydl_min:
+                                    ie = ydl_min.get_info_extractor('Youtube')
+                                    ie.set_downloader(ydl_min)
+                                    ie_result = ie.extract(url)
+                                    
+                                    if ie_result and ie_result.get('title'):
+                                        logger.info(f"✓ Successfully extracted basic info using Chrome profile: {profile}")
+                                        return {
+                                            'id': ie_result.get('id'),
+                                            'title': ie_result.get('title'),
+                                            'description': ie_result.get('description', ''),
+                                            'duration': ie_result.get('duration'),
+                                            'uploader': ie_result.get('uploader'),
+                                            'upload_date': ie_result.get('upload_date'),
+                                            'view_count': ie_result.get('view_count'),
+                                            'like_count': ie_result.get('like_count'),
+                                            'thumbnail': ie_result.get('thumbnail'),
+                                            'format_id': ie_result.get('format_id'),
+                                            'resolution': ie_result.get('resolution'),
+                                            'fps': ie_result.get('fps'),
+                                            'filesize': ie_result.get('filesize'),
+                                        }
+                            except Exception as alt_error:
+                                logger.debug(f"Alternative method failed: {alt_error}")
+                                pass
+                        raise
                 
                 except Exception as profile_error:
                     logger.warning(f"Profile '{profile}' failed: {profile_error}")
