@@ -34,7 +34,7 @@ echo ""
 echo "Starting Chrome..."
 echo ""
 
-DISPLAY=:99 google-chrome --no-sandbox --disable-dev-shm-usage --user-data-dir=/root/.config/google-chrome &
+DISPLAY=:99 google-chrome --no-sandbox --disable-dev-shm-usage --password-store=basic --user-data-dir=/root/.config/google-chrome &
 
 echo ""
 echo "Chrome started!"
