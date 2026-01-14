@@ -152,6 +152,18 @@ def is_youtube_url(
     return video_id is not None
 
 
+def get_cookies_options() -> Optional[Dict[str, Any]]:
+    chrome_profiles = get_chrome_profiles()
+    cookies_file = Path(settings.TEMP_DIR).parent / "youtube_cookies.txt"
+    
+    if chrome_profiles:
+        return {'cookiesfrombrowser': ('chrome', chrome_profiles[0])}
+    elif cookies_file.exists():
+        return {'cookiefile': str(cookies_file)}
+    
+    return None
+
+
 def get_youtube_video_info(
     url: str,
 ) -> Optional[Dict[str, Any]]:
@@ -161,14 +173,23 @@ def get_youtube_video_info(
         return None
 
     chrome_profiles = get_chrome_profiles()
-    profiles_to_try = chrome_profiles if chrome_profiles else [None]
+    cookies_file = Path(settings.TEMP_DIR).parent / "youtube_cookies.txt"
+    
+    methods_to_try = []
     
     if chrome_profiles:
+        methods_to_try.extend([('chrome_profile', p) for p in chrome_profiles])
         logger.info(f"Found {len(chrome_profiles)} Chrome profiles")
-    else:
-        logger.info("No Chrome profiles found, will try without cookies")
     
-    for profile in profiles_to_try:
+    if cookies_file.exists():
+        methods_to_try.append(('cookies_file', str(cookies_file)))
+        logger.info(f"Found cookies file: {cookies_file}")
+    
+    if not methods_to_try:
+        methods_to_try.append(('none', None))
+        logger.info("No Chrome profiles or cookies file found, trying without authentication")
+    
+    for method_type, method_value in methods_to_try:
         try:
             ydl_opts = {
                 'quiet': True,
@@ -179,11 +200,14 @@ def get_youtube_video_info(
                 'format': None,
             }
             
-            if profile:
-                ydl_opts['cookiesfrombrowser'] = ('chrome', profile)
-                logger.debug(f"Trying with Chrome profile: {profile}")
+            if method_type == 'chrome_profile':
+                ydl_opts['cookiesfrombrowser'] = ('chrome', method_value)
+                logger.debug(f"Trying with Chrome profile: {method_value}")
+            elif method_type == 'cookies_file':
+                ydl_opts['cookiefile'] = method_value
+                logger.debug(f"Trying with cookies file: {method_value}")
             else:
-                logger.debug("Trying without cookies")
+                logger.debug("Trying without authentication")
             
             with yt_dlp.YoutubeDL(params=ydl_opts) as ydl:
                 ie = ydl.get_info_extractor('Youtube')
@@ -191,8 +215,14 @@ def get_youtube_video_info(
                 info = ie.extract(url)
                 
                 if info and info.get('title'):
-                    profile_msg = f"with profile: {profile}" if profile else "without cookies"
-                    logger.info(f"✓ Successfully extracted info {profile_msg}")
+                    if method_type == 'chrome_profile':
+                        method_msg = f"with Chrome profile: {method_value}"
+                    elif method_type == 'cookies_file':
+                        method_msg = "with cookies file"
+                    else:
+                        method_msg = "without authentication"
+                    
+                    logger.info(f"✓ Successfully extracted info {method_msg}")
                     return {
                         'id': info.get('id'),
                         'title': info.get('title'),
@@ -211,13 +241,15 @@ def get_youtube_video_info(
                     
         except Exception as e:
             error_msg = str(e)
-            if profile:
-                logger.debug(f"Profile '{profile}' failed: {error_msg[:200]}")
+            if method_type == 'chrome_profile':
+                logger.debug(f"Chrome profile '{method_value}' failed: {error_msg[:200]}")
+            elif method_type == 'cookies_file':
+                logger.debug(f"Cookies file failed: {error_msg[:200]}")
             else:
-                logger.debug(f"No cookies attempt failed: {error_msg[:200]}")
+                logger.debug(f"No authentication failed: {error_msg[:200]}")
             continue
     
-    logger.error(f"All methods failed to extract video info (tried {len(profiles_to_try)} methods)")
+    logger.error(f"All methods failed to extract video info (tried {len(methods_to_try)} methods)")
     return None
 
 
@@ -271,6 +303,11 @@ async def download_youtube_video(
                     video_id=video_id,
                     format_string=format_string,
                 )
+                
+                cookies_opts = get_cookies_options()
+                if cookies_opts:
+                    ydl_opts.update(cookies_opts)
+                    logger.debug(f"Using cookies for download")
 
                 def download_task():
                     with yt_dlp.YoutubeDL(params=ydl_opts) as ydl:
