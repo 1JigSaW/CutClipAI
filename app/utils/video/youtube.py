@@ -25,8 +25,16 @@ def get_chrome_profiles() -> List[str]:
         logger.info(f"Found Chrome directory: {chrome_path}")
         for item in chrome_path.iterdir():
             if item.is_dir() and (item.name.startswith("Profile ") or item.name == "Default"):
-                cookies_file = item / "Cookies"
-                if cookies_file.exists():
+                cookies_paths = [
+                    item / "Cookies",
+                    item / "Network" / "Cookies",
+                ]
+                has_cookies = False
+                for cookies_path in cookies_paths:
+                    if cookies_path.exists():
+                        has_cookies = True
+                        break
+                if has_cookies:
                     profiles.append(item.name)
                     logger.debug(f"Found Chrome profile: {item.name}")
     
