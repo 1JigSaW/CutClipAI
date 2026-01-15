@@ -21,6 +21,8 @@ class Settings(BaseSettings):
 
     TEMP_DIR: Path = Path("./data/temp")
     OUTPUT_DIR: Path = Path("./data/output")
+    
+    YOUTUBE_COOKIES_FILE: Optional[Path] = None
 
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_API_URL: str = "https://api.telegram.org"

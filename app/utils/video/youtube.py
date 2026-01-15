@@ -155,14 +155,21 @@ def is_youtube_url(
 
 
 def get_cookies_options() -> Optional[Dict[str, Any]]:
+    if settings.YOUTUBE_COOKIES_FILE and settings.YOUTUBE_COOKIES_FILE.exists():
+        logger.info(f"Using cookies file: {settings.YOUTUBE_COOKIES_FILE}")
+        return {'cookiefile': str(settings.YOUTUBE_COOKIES_FILE)}
+    
     chrome_profiles = get_chrome_profiles()
     cookies_file = Path(settings.TEMP_DIR).parent / "youtube_cookies.txt"
     
     if chrome_profiles:
+        logger.debug(f"Using Chrome profile: {chrome_profiles[0]}")
         return {'cookiesfrombrowser': ('chrome', chrome_profiles[0])}
     elif cookies_file.exists():
+        logger.info(f"Using fallback cookies file: {cookies_file}")
         return {'cookiefile': str(cookies_file)}
     
+    logger.debug("No cookies available")
     return None
 
 
