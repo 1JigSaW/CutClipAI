@@ -46,6 +46,17 @@ else
     echo "✅ Docker Compose already installed"
 fi
 
+echo "🦕 Installing Deno for yt-dlp..."
+if ! command -v deno &> /dev/null; then
+    curl -fsSL https://deno.land/install.sh | sh
+    export DENO_INSTALL="/root/.deno"
+    export PATH="$DENO_INSTALL/bin:$PATH"
+    ln -sf /root/.deno/bin/deno /usr/local/bin/deno
+    echo "✅ Deno installed"
+else
+    echo "✅ Deno already installed"
+fi
+
 echo "🔒 Configuring firewall..."
 if command -v ufw &> /dev/null; then
     ufw allow 22/tcp

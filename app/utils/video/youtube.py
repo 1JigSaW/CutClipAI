@@ -82,6 +82,7 @@ class YouTubeDownloader:
             'quiet': True,
             'no_warnings': False,
             'ignoreerrors': False,
+            'remote_components': ['ejs:github'],
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -198,6 +199,7 @@ def get_youtube_video_info(
                 'nocheckcertificate': True,
                 'extract_flat': False,
                 'format': None,
+                'remote_components': ['ejs:github'],
             }
             
             if method_type == 'chrome_profile':
@@ -386,6 +388,7 @@ async def download_youtube_video(
                     'socket_timeout': 30,
                     'retries': 3,
                     'fragment_retries': 3,
+                    'remote_components': ['ejs:github'],
                     'ffmpeg_location': settings.FFMPEG_PATH,
                 }
                 

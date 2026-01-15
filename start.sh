@@ -28,6 +28,16 @@ fi
 echo -e "${GREEN}🔌 Activating virtual environment...${NC}"
 source venv/bin/activate
 
+# Check and setup Deno for yt-dlp
+if ! command -v deno &> /dev/null; then
+    echo -e "${YELLOW}🦕 Deno not found. Installing Deno for yt-dlp...${NC}"
+    bash install_deno.sh
+fi
+
+# Add Deno to PATH
+export DENO_INSTALL="$HOME/.deno"
+export PATH="$DENO_INSTALL/bin:$PATH"
+
 # Create logs directory
 mkdir -p logs
 
