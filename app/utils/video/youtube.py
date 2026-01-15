@@ -1,6 +1,7 @@
 import re
 import asyncio
 import time
+import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
@@ -340,7 +341,7 @@ async def download_youtube_video(
                         output_path_obj = Path(output_path)
                         if file_path != output_path_obj:
                             output_path_obj.parent.mkdir(parents=True, exist_ok=True)
-                            file_path.rename(output_path_obj)
+                            shutil.move(str(file_path), str(output_path_obj))
                             logger.info(f"Moved to: {output_path}")
                         
                 return True
@@ -427,7 +428,7 @@ async def download_youtube_video(
                     test_path = Path(str(output_path_obj) + ext)
                     if test_path.exists():
                         if test_path != output_path_obj:
-                            test_path.rename(output_path_obj)
+                            shutil.move(str(test_path), str(output_path_obj))
                         file_size = output_path_obj.stat().st_size
                         logger.info(f"Download successful with Chrome profile '{profile}' + format '{format_string}': ({file_size // 1024 // 1024}MB)")
                     return True
