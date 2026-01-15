@@ -91,9 +91,10 @@ class YouTubeDownloader:
                 'Connection': 'keep-alive',
             },
             'extractor_args': {
-                'youtube': {
-                    'player_client': ['android_unplugged', 'android', 'web'],
-                }
+                'youtube': [
+                    'player_client=android_unplugged',
+                    'player_skip=webpage',
+                ]
             },
             'postprocessors': [{
                 'key': 'FFmpegVideoConvertor',
@@ -201,9 +202,10 @@ def get_youtube_video_info(
                 'format': None,
                 'remote_components': ['ejs:github'],
                 'extractor_args': {
-                    'youtube': {
-                        'player_client': ['android_unplugged', 'android', 'web'],
-                    }
+                    'youtube': [
+                        'player_client=android_unplugged',
+                        'player_skip=webpage',
+                    ]
                 },
             }
             
@@ -396,9 +398,10 @@ async def download_youtube_video(
                     'remote_components': ['ejs:github'],
                     'ffmpeg_location': settings.FFMPEG_PATH,
                     'extractor_args': {
-                        'youtube': {
-                            'player_client': ['android_unplugged', 'android', 'web'],
-                        }
+                        'youtube': [
+                            'player_client=android_unplugged',
+                            'player_skip=webpage',
+                        ]
                     },
                 }
                 
