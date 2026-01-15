@@ -92,7 +92,7 @@ class YouTubeDownloader:
             },
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'web'],
+                    'player_client': ['android_unplugged', 'android', 'web'],
                 }
             },
             'postprocessors': [{
@@ -200,6 +200,11 @@ def get_youtube_video_info(
                 'extract_flat': False,
                 'format': None,
                 'remote_components': ['ejs:github'],
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android_unplugged', 'android', 'web'],
+                    }
+                },
             }
             
             if method_type == 'chrome_profile':
@@ -390,6 +395,11 @@ async def download_youtube_video(
                     'fragment_retries': 3,
                     'remote_components': ['ejs:github'],
                     'ffmpeg_location': settings.FFMPEG_PATH,
+                    'extractor_args': {
+                        'youtube': {
+                            'player_client': ['android_unplugged', 'android', 'web'],
+                        }
+                    },
                 }
                 
                 def download_with_cookies():
