@@ -2,6 +2,8 @@ import re
 import asyncio
 import time
 import shutil
+import tempfile
+import gc
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
@@ -92,10 +94,10 @@ class YouTubeDownloader:
                 'Connection': 'keep-alive',
             },
             'extractor_args': {
-                'youtube': [
-                    'player_client=android_unplugged',
-                    'player_skip=webpage',
-                ]
+                'youtube': {
+                    'player_client': ['android_unplugged'],
+                    'player_skip': ['webpage'],
+                }
             },
             'postprocessors': [{
                 'key': 'FFmpegVideoConvertor',
@@ -210,10 +212,10 @@ def get_youtube_video_info(
                 'format': None,
                 'remote_components': ['ejs:github'],
                 'extractor_args': {
-                    'youtube': [
-                        'player_client=android_unplugged',
-                        'player_skip=webpage',
-                    ]
+                    'youtube': {
+                        'player_client': ['android_unplugged'],
+                        'player_skip': ['webpage'],
+                    }
                 },
             }
             
@@ -487,3 +489,59 @@ def cleanup_downloaded_files(
                 logger.info(f"Cleaned up: {file_path.name}")
         except Exception as e:
             logger.warning(f"Failed to cleanup {file_path.name}: {e}")
+
+
+def cleanup_chrome_temp_files():
+    try:
+        tmp_dir = Path(tempfile.gettempdir())
+        
+        chrome_patterns = [
+            "com.google.Chrome.*",
+            ".com.google.Chrome.*",
+            "chrome_*",
+        ]
+        
+        cleaned_count = 0
+        for pattern in chrome_patterns:
+            for temp_path in tmp_dir.glob(pattern):
+                try:
+                    if temp_path.is_dir():
+                        shutil.rmtree(path=temp_path, ignore_errors=True)
+                        cleaned_count += 1
+                        logger.debug(f"Cleaned Chrome temp dir: {temp_path.name}")
+                except Exception as e:
+                    logger.debug(f"Failed to cleanup {temp_path.name}: {e}")
+        
+        if cleaned_count > 0:
+            logger.info(f"Cleaned up {cleaned_count} Chrome temp directories")
+            
+    except Exception as e:
+        logger.warning(f"Failed to cleanup Chrome temp files: {e}")
+
+
+def cleanup_moviepy_temp_files():
+    try:
+        tmp_dir = Path(tempfile.gettempdir())
+        
+        moviepy_patterns = [
+            "pymp-*",
+            "moviepy_*",
+            "tmp*",
+        ]
+        
+        cleaned_count = 0
+        for pattern in moviepy_patterns:
+            for temp_path in tmp_dir.glob(pattern):
+                try:
+                    if temp_path.is_dir() and temp_path.name.startswith(("pymp-", "moviepy_")):
+                        shutil.rmtree(path=temp_path, ignore_errors=True)
+                        cleaned_count += 1
+                        logger.debug(f"Cleaned MoviePy temp dir: {temp_path.name}")
+                except Exception as e:
+                    logger.debug(f"Failed to cleanup {temp_path.name}: {e}")
+        
+        if cleaned_count > 0:
+            logger.info(f"Cleaned up {cleaned_count} MoviePy temp directories")
+            
+    except Exception as e:
+        logger.warning(f"Failed to cleanup MoviePy temp files: {e}")

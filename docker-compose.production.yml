@@ -80,7 +80,7 @@ services:
       dockerfile: Dockerfile.production
     container_name: cutclipai_worker
     restart: unless-stopped
-    command: sh -c "/app/init_keyring.sh && celery -A app.core.celery_app worker --loglevel=info --concurrency=2 --max-tasks-per-child=3 --prefetch-multiplier=1"
+    command: sh -c "/app/init_keyring.sh && celery -A app.core.celery_app worker --loglevel=info --concurrency=2 --max-tasks-per-child=1 --prefetch-multiplier=1"
     ports:
       - "5900:5900"
     volumes:
