@@ -213,8 +213,7 @@ def get_youtube_video_info(
                 'remote_components': ['ejs:github'],
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['android_unplugged'],
-                        'player_skip': ['webpage'],
+                        'player_client': ['android', 'web'],
                     }
                 },
             }
@@ -307,7 +306,7 @@ async def download_youtube_video_via_api(
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(
                     connect=60.0,
-                    read=600.0,
+                    read=1800.0,
                     write=60.0,
                     pool=60.0,
                 ),
@@ -318,6 +317,7 @@ async def download_youtube_video_via_api(
                         url=download_url,
                         json={"url": url},
                         follow_redirects=True,
+                        stream=True,
                     )
                     if response.status_code != 200:
                         logger.debug(
@@ -327,6 +327,7 @@ async def download_youtube_video_via_api(
                             url=download_url,
                             params={"url": url},
                             follow_redirects=True,
+                            stream=True,
                         )
                 except Exception as post_error:
                     logger.debug(f"POST request failed, trying GET: {post_error}")
@@ -335,6 +336,7 @@ async def download_youtube_video_via_api(
                             url=download_url,
                             params={"url": url},
                             follow_redirects=True,
+                            stream=True,
                         )
                     except Exception as get_error:
                         logger.error(f"Both POST and GET failed: {get_error}")
@@ -351,9 +353,12 @@ async def download_youtube_video_via_api(
                         return False
 
                 if response.status_code == 200:
+                    total_bytes = 0
                     with open(output_path_obj, "wb") as f:
-                        async for chunk in response.aiter_bytes():
-                            f.write(chunk)
+                        async for chunk in response.aiter_bytes(chunk_size=8192 * 1024):
+                            if chunk:
+                                f.write(chunk)
+                                total_bytes += len(chunk)
 
                     if output_path_obj.exists() and output_path_obj.stat().st_size > 0:
                         file_size = output_path_obj.stat().st_size
@@ -368,14 +373,20 @@ async def download_youtube_video_via_api(
                             output_path_obj.unlink()
 
                 elif response.status_code == 400:
-                    error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
-                    error_msg = error_data.get("error", "Bad request")
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("error", "Bad request")
+                    except Exception:
+                        error_msg = "Bad request"
                     logger.error(f"API returned 400: {error_msg}")
                     return False
 
                 elif response.status_code == 500:
-                    error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
-                    error_msg = error_data.get("error", "Internal server error")
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("error", "Internal server error")
+                    except Exception:
+                        error_msg = "Internal server error"
                     logger.warning(f"API returned 500 (attempt {attempt + 1}/{max_retries}): {error_msg}")
                     if attempt < max_retries - 1:
                         wait_time = 2 ** attempt
@@ -423,7 +434,7 @@ async def download_youtube_video_via_api(
                 return False
 
         except Exception as e:
-            logger.error(f"Unexpected error during download attempt {attempt + 1}: {e}")
+            logger.error(f"Unexpected error during download attempt {attempt + 1}: {e}", exc_info=True)
             if attempt < max_retries - 1:
                 wait_time = 2 ** attempt
                 logger.info(f"Retrying in {wait_time} seconds...")
@@ -576,7 +587,7 @@ async def download_youtube_video(
                     'ffmpeg_location': settings.FFMPEG_PATH,
                     'extractor_args': {
                         'youtube': {
-                            'player_client': ['android_unplugged'],
+                            'player_client': ['android', 'web'],
                             'player_skip': ['webpage'],
                         }
                     },
