@@ -8,7 +8,16 @@ echo "1. Проверка процессов VNC в контейнере..."
 docker-compose -f docker-compose.production.yml exec -T worker ps aux | grep -E "(Xvfb|x11vnc|fluxbox)" || echo "Процессы VNC не найдены"
 
 echo -e "\n2. Проверка порта 5900 в контейнере..."
-docker-compose -f docker-compose.production.yml exec -T worker netstat -tlnp 2>/dev/null | grep 5900 || echo "Порт 5900 не слушается"
+docker-compose -f docker-compose.production.yml exec -T worker bash -c "
+    if command -v netstat > /dev/null 2>&1; then
+        netstat -tlnp 2>/dev/null | grep 5900 || echo 'Порт 5900 не слушается (netstat)'
+    elif command -v ss > /dev/null 2>&1; then
+        ss -tlnp 2>/dev/null | grep 5900 || echo 'Порт 5900 не слушается (ss)'
+    else
+        echo 'Проверка порта: x11vnc должен слушать на 0.0.0.0:5900'
+        ps aux | grep x11vnc | grep -v grep
+    fi
+"
 
 echo -e "\n3. Проверка порта 5900 на хосте..."
 netstat -tlnp 2>/dev/null | grep 5900 || echo "Порт 5900 не проброшен на хост"
