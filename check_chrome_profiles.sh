@@ -28,6 +28,7 @@ for profile in profiles:
             'quiet': False,
             'skip_download': True,
             'cookiesfrombrowser': ('chrome', profile),
+            'remote_components': ['ejs:github'],
             'extractor_args': {
                 'youtube': {
                     'player_client': ['android_unplugged'],
