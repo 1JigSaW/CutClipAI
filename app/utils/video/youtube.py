@@ -281,7 +281,7 @@ def get_youtube_video_title(
 async def download_youtube_video_via_api(
     url: str,
     output_path: str,
-    max_retries: int = 3,
+    max_retries: int = 10,
 ) -> bool:
     api_url = settings.YOUTUBE_DOWNLOAD_API_URL
     if not api_url:
@@ -399,7 +399,7 @@ async def download_youtube_video_via_api(
                         f"(attempt {attempt + 1}/{max_retries})"
                     )
                     if attempt < max_retries - 1:
-                        wait_time = 5 * (attempt + 1)
+                        wait_time = 10
                         logger.info(f"Retrying in {wait_time} seconds...")
                         await asyncio.sleep(delay=wait_time)
                         continue
@@ -447,7 +447,7 @@ async def download_youtube_video_via_api(
 async def download_youtube_video(
     url: str,
     output_path: str,
-    max_retries: int = 3,
+    max_retries: int = 10,
 ) -> bool:
     logger.info(f"Starting YouTube download: {url}")
 
