@@ -227,7 +227,7 @@ def get_youtube_video_info(
                 logger.debug(f"Trying with cookies file: {method_value}")
             else:
                 logger.debug("Trying without authentication")
-            
+
             with yt_dlp.YoutubeDL(params=ydl_opts) as ydl:
                 ie = ydl.get_info_extractor('Youtube')
                 ie.set_downloader(ydl)
@@ -257,7 +257,7 @@ def get_youtube_video_info(
                         'fps': info.get('fps'),
                         'filesize': info.get('filesize'),
                     }
-                    
+
         except Exception as e:
             error_msg = str(e)
             if method_type == 'chrome_profile':
@@ -267,7 +267,7 @@ def get_youtube_video_info(
             else:
                 logger.debug(f"No authentication failed: {error_msg[:200]}")
             continue
-    
+            
     logger.error(f"All methods failed to extract video info (tried {len(methods_to_try)} methods)")
     return None
 
@@ -408,10 +408,10 @@ async def download_youtube_video(
                     'remote_components': ['ejs:github'],
                     'ffmpeg_location': settings.FFMPEG_PATH,
                     'extractor_args': {
-                        'youtube': [
-                            'player_client=android_unplugged',
-                            'player_skip=webpage',
-                        ]
+                        'youtube': {
+                            'player_client': ['android_unplugged'],
+                            'player_skip': ['webpage'],
+                        }
                     },
                 }
                 
