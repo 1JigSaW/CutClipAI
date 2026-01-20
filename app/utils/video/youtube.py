@@ -317,7 +317,6 @@ async def download_youtube_video_via_api(
                         url=download_url,
                         json={"url": url},
                         follow_redirects=True,
-                        stream=True,
                     )
                     if response.status_code != 200:
                         logger.debug(
@@ -327,7 +326,6 @@ async def download_youtube_video_via_api(
                             url=download_url,
                             params={"url": url},
                             follow_redirects=True,
-                            stream=True,
                         )
                 except Exception as post_error:
                     logger.debug(f"POST request failed, trying GET: {post_error}")
@@ -336,7 +334,6 @@ async def download_youtube_video_via_api(
                             url=download_url,
                             params={"url": url},
                             follow_redirects=True,
-                            stream=True,
                         )
                     except Exception as get_error:
                         logger.error(f"Both POST and GET failed: {get_error}")
@@ -455,14 +452,11 @@ async def download_youtube_video(
     logger.info(f"Starting YouTube download: {url}")
 
     if settings.YOUTUBE_DOWNLOAD_API_URL:
-        api_success = await download_youtube_video_via_api(
+        return await download_youtube_video_via_api(
             url=url,
             output_path=output_path,
             max_retries=max_retries,
         )
-        if api_success:
-            return True
-        logger.warning("API download failed, falling back to yt-dlp")
 
     video_id = get_youtube_video_id(url=url)
     if not video_id:
