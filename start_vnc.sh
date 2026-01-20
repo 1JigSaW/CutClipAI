@@ -49,10 +49,28 @@ echo ""
 echo "Starting Chrome..."
 echo ""
 
-DISPLAY=:99 google-chrome --no-sandbox --disable-dev-shm-usage --password-store=basic --user-data-dir=/root/.config/google-chrome &
+DISPLAY=:99 google-chrome --no-sandbox --disable-dev-shm-usage --password-store=basic --user-data-dir=/root/.config/google-chrome > /tmp/chrome.log 2>&1 &
+CHROME_PID=$!
 
-echo ""
-echo "Chrome started!"
+sleep 3
+
+if ps -p $CHROME_PID > /dev/null 2>&1 || pgrep -f "google-chrome" > /dev/null; then
+    echo "✓ Chrome started successfully!"
+    echo "  PID: $(pgrep -f 'google-chrome' | head -1)"
+else
+    echo "✗ Chrome failed to start. Check logs:"
+    tail -20 /tmp/chrome.log 2>/dev/null || echo "  No logs found"
+    echo ""
+    echo "Trying to start Chrome again..."
+    DISPLAY=:99 google-chrome --no-sandbox --disable-dev-shm-usage --password-store=basic --user-data-dir=/root/.config/google-chrome > /tmp/chrome.log 2>&1 &
+    sleep 3
+    if pgrep -f "google-chrome" > /dev/null; then
+        echo "✓ Chrome started on second attempt"
+    else
+        echo "✗ Chrome still not starting. Check /tmp/chrome.log for errors"
+    fi
+fi
+
 echo ""
 echo "Now:"
 echo "1. Connect VNC to localhost:5900"
