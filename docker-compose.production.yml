@@ -99,6 +99,7 @@ services:
       USE_GPU_ENCODING: "false"
       FORCE_CPU: "true"
       YOUTUBE_COOKIES_FILE: /app/data/youtube_cookies.txt
+      YOUTUBE_DOWNLOAD_API_URL: ${YOUTUBE_DOWNLOAD_API_URL}
       DBUS_SESSION_BUS_ADDRESS: unix:path=/tmp/dbus-session
     depends_on:
       postgres:
@@ -133,6 +134,7 @@ services:
       DATABASE_URL: postgresql://cutclipai:${POSTGRES_PASSWORD:-cutclipai_secure_password}@postgres:5432/cutclipai
       DOCKER_HOST_IP: 172.17.0.1
       YOUTUBE_COOKIES_FILE: /app/data/youtube_cookies.txt
+      YOUTUBE_DOWNLOAD_API_URL: ${YOUTUBE_DOWNLOAD_API_URL}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
