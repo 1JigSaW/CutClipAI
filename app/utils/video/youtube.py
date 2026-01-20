@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
 
+import httpx
 import yt_dlp
 
 from app.core.logger import get_logger
@@ -278,12 +279,162 @@ def get_youtube_video_title(
     return video_info.get('title') if video_info else None
 
 
+async def download_youtube_video_via_api(
+    url: str,
+    output_path: str,
+    max_retries: int = 3,
+) -> bool:
+    api_url = settings.YOUTUBE_DOWNLOAD_API_URL
+    if not api_url:
+        logger.error("YOUTUBE_DOWNLOAD_API_URL not configured")
+        return False
+
+    api_url = api_url.rstrip('/')
+    if api_url.endswith('/api'):
+        download_url = f"{api_url}/download-video/"
+    else:
+        download_url = f"{api_url}/api/download-video/"
+    
+    logger.info(f"Downloading via external API: {download_url}")
+
+    output_path_obj = Path(output_path)
+    output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Download attempt {attempt + 1}/{max_retries}")
+
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    connect=30.0,
+                    read=300.0,
+                    write=30.0,
+                    pool=30.0,
+                ),
+            ) as client:
+                response = None
+                try:
+                    response = await client.post(
+                        url=download_url,
+                        json={"url": url},
+                        follow_redirects=True,
+                    )
+                    if response.status_code != 200:
+                        logger.debug(
+                            f"POST returned {response.status_code}, trying GET..."
+                        )
+                        response = await client.get(
+                            url=download_url,
+                            params={"url": url},
+                            follow_redirects=True,
+                        )
+                except Exception as post_error:
+                    logger.debug(f"POST request failed, trying GET: {post_error}")
+                    try:
+                        response = await client.get(
+                            url=download_url,
+                            params={"url": url},
+                            follow_redirects=True,
+                        )
+                    except Exception as get_error:
+                        logger.error(f"Both POST and GET failed: {get_error}")
+                        raise
+
+                if not response:
+                    logger.error("No response received from API")
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt
+                        logger.info(f"Retrying in {wait_time} seconds...")
+                        await asyncio.sleep(delay=wait_time)
+                        continue
+                    else:
+                        return False
+
+                if response.status_code == 200:
+                    with open(output_path_obj, "wb") as f:
+                        async for chunk in response.aiter_bytes():
+                            f.write(chunk)
+
+                    if output_path_obj.exists() and output_path_obj.stat().st_size > 0:
+                        file_size = output_path_obj.stat().st_size
+                        logger.info(
+                            f"Download successful via API: {output_path} "
+                            f"({file_size // 1024 // 1024}MB)"
+                        )
+                        return True
+                    else:
+                        logger.warning("Downloaded file is empty or doesn't exist")
+                        if output_path_obj.exists():
+                            output_path_obj.unlink()
+
+                elif response.status_code == 400:
+                    error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+                    error_msg = error_data.get("error", "Bad request")
+                    logger.error(f"API returned 400: {error_msg}")
+                    return False
+
+                elif response.status_code == 500:
+                    error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+                    error_msg = error_data.get("error", "Internal server error")
+                    logger.warning(f"API returned 500 (attempt {attempt + 1}/{max_retries}): {error_msg}")
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt
+                        logger.info(f"Retrying in {wait_time} seconds...")
+                        await asyncio.sleep(delay=wait_time)
+                        continue
+                    else:
+                        return False
+
+                else:
+                    logger.warning(
+                        f"API returned status {response.status_code} "
+                        f"(attempt {attempt + 1}/{max_retries})"
+                    )
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt
+                        logger.info(f"Retrying in {wait_time} seconds...")
+                        await asyncio.sleep(delay=wait_time)
+                        continue
+                    else:
+                        return False
+
+        except httpx.TimeoutException as e:
+            logger.warning(f"Timeout during download attempt {attempt + 1}: {e}")
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                logger.info(f"Retrying in {wait_time} seconds...")
+                await asyncio.sleep(delay=wait_time)
+                continue
+            else:
+                return False
+
+        except Exception as e:
+            logger.error(f"Unexpected error during download attempt {attempt + 1}: {e}")
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                logger.info(f"Retrying in {wait_time} seconds...")
+                await asyncio.sleep(delay=wait_time)
+                continue
+            else:
+                return False
+
+    logger.error("All download attempts via API failed")
+    return False
+
+
 async def download_youtube_video(
     url: str,
     output_path: str,
     max_retries: int = 3,
 ) -> bool:
     logger.info(f"Starting YouTube download: {url}")
+
+    if settings.YOUTUBE_DOWNLOAD_API_URL:
+        return await download_youtube_video_via_api(
+            url=url,
+            output_path=output_path,
+            max_retries=max_retries,
+        )
 
     video_id = get_youtube_video_id(url=url)
     if not video_id:
