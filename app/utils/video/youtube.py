@@ -350,24 +350,67 @@ async def download_youtube_video_via_api(
                         return False
 
                 if response.status_code == 200:
-                    total_bytes = 0
-                    with open(output_path_obj, "wb") as f:
-                        async for chunk in response.aiter_bytes(chunk_size=8192 * 1024):
-                            if chunk:
-                                f.write(chunk)
-                                total_bytes += len(chunk)
-
-                    if output_path_obj.exists() and output_path_obj.stat().st_size > 0:
-                        file_size = output_path_obj.stat().st_size
-                        logger.info(
-                            f"Download successful via API: {output_path} "
-                            f"({file_size // 1024 // 1024}MB)"
+                    try:
+                        response_data = response.json()
+                        video_url = response_data.get("url")
+                        
+                        if not video_url:
+                            logger.error("API response missing 'url' field")
+                            if attempt < max_retries - 1:
+                                wait_time = 2 ** attempt
+                                logger.info(f"Retrying in {wait_time} seconds...")
+                                await asyncio.sleep(delay=wait_time)
+                                continue
+                            else:
+                                return False
+                        
+                        logger.info(f"Got video URL from API: {video_url}")
+                        
+                        download_response = await client.get(
+                            url=video_url,
+                            follow_redirects=True,
                         )
-                        return True
-                    else:
-                        logger.warning("Downloaded file is empty or doesn't exist")
-                        if output_path_obj.exists():
-                            output_path_obj.unlink()
+                        
+                        if download_response.status_code == 200:
+                            total_bytes = 0
+                            with open(output_path_obj, "wb") as f:
+                                async for chunk in download_response.aiter_bytes(chunk_size=8192 * 1024):
+                                    if chunk:
+                                        f.write(chunk)
+                                        total_bytes += len(chunk)
+
+                            if output_path_obj.exists() and output_path_obj.stat().st_size > 0:
+                                file_size = output_path_obj.stat().st_size
+                                logger.info(
+                                    f"Download successful via API: {output_path} "
+                                    f"({file_size // 1024 // 1024}MB)"
+                                )
+                                return True
+                            else:
+                                logger.warning("Downloaded file is empty or doesn't exist")
+                                if output_path_obj.exists():
+                                    output_path_obj.unlink()
+                        else:
+                            logger.warning(
+                                f"Failed to download from S3 URL: {download_response.status_code}"
+                            )
+                            if attempt < max_retries - 1:
+                                wait_time = 2 ** attempt
+                                logger.info(f"Retrying in {wait_time} seconds...")
+                                await asyncio.sleep(delay=wait_time)
+                                continue
+                            else:
+                                return False
+                                
+                    except Exception as e:
+                        logger.error(f"Error parsing API response or downloading: {e}")
+                        if attempt < max_retries - 1:
+                            wait_time = 2 ** attempt
+                            logger.info(f"Retrying in {wait_time} seconds...")
+                            await asyncio.sleep(delay=wait_time)
+                            continue
+                        else:
+                            return False
 
                 elif response.status_code == 400:
                     try:
