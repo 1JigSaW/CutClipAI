@@ -17,19 +17,25 @@ git push origin main
 echo -e "\n3. Pull на сервере..."
 ssh $SERVER "cd $PROJECT_DIR && git pull origin main"
 
-echo -e "\n4. Пересборка Docker контейнера..."
+echo -e "\n4. Остановка и очистка старых контейнеров..."
+ssh $SERVER "cd $PROJECT_DIR && docker-compose -f docker-compose.production.yml down || true"
+
+echo -e "\n5. Очистка старых образов и контейнеров..."
+ssh $SERVER "cd $PROJECT_DIR && docker container prune -f && docker image prune -a -f || true"
+
+echo -e "\n6. Пересборка Docker контейнера..."
 ssh $SERVER "cd $PROJECT_DIR && docker-compose -f docker-compose.production.yml build --no-cache worker"
 
-echo -e "\n5. Перезапуск контейнеров..."
-ssh $SERVER "cd $PROJECT_DIR && docker-compose -f docker-compose.production.yml down && docker-compose -f docker-compose.production.yml up -d"
+echo -e "\n7. Запуск контейнеров..."
+ssh $SERVER "cd $PROJECT_DIR && docker-compose -f docker-compose.production.yml up -d"
 
-echo -e "\n6. Ожидание запуска (15 секунд)..."
+echo -e "\n8. Ожидание запуска (15 секунд)..."
 sleep 15
 
-echo -e "\n7. Проверка версии yt-dlp..."
+echo -e "\n9. Проверка версии yt-dlp..."
 ssh $SERVER "cd $PROJECT_DIR && docker-compose -f docker-compose.production.yml exec -T worker python3 -c 'import yt_dlp; print(f\"yt-dlp: {yt_dlp.version.__version__}\")'"
 
-echo -e "\n8. Тест возрастного видео..."
+echo -e "\n10. Тест возрастного видео..."
 ssh $SERVER "cd $PROJECT_DIR && docker-compose -f docker-compose.production.yml exec -T worker python3 -c \"
 from app.utils.video.youtube import get_youtube_video_info
 info = get_youtube_video_info('https://www.youtube.com/watch?v=0KE1ayhUYGY')
