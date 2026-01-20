@@ -306,10 +306,10 @@ async def download_youtube_video_via_api(
 
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(
-                    connect=30.0,
-                    read=300.0,
-                    write=30.0,
-                    pool=30.0,
+                    connect=60.0,
+                    read=600.0,
+                    write=60.0,
+                    pool=60.0,
                 ),
             ) as client:
                 response = None
@@ -383,6 +383,20 @@ async def download_youtube_video_via_api(
                         await asyncio.sleep(delay=wait_time)
                         continue
                     else:
+                        return False
+
+                elif response.status_code == 524:
+                    logger.warning(
+                        f"API returned 524 (Cloudflare timeout) "
+                        f"(attempt {attempt + 1}/{max_retries})"
+                    )
+                    if attempt < max_retries - 1:
+                        wait_time = 5 * (attempt + 1)
+                        logger.info(f"Retrying in {wait_time} seconds...")
+                        await asyncio.sleep(delay=wait_time)
+                        continue
+                    else:
+                        logger.error("API timeout after all retries")
                         return False
 
                 else:
