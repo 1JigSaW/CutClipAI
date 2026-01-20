@@ -444,11 +444,14 @@ async def download_youtube_video(
     logger.info(f"Starting YouTube download: {url}")
 
     if settings.YOUTUBE_DOWNLOAD_API_URL:
-        return await download_youtube_video_via_api(
+        api_success = await download_youtube_video_via_api(
             url=url,
             output_path=output_path,
             max_retries=max_retries,
         )
+        if api_success:
+            return True
+        logger.warning("API download failed, falling back to yt-dlp")
 
     video_id = get_youtube_video_id(url=url)
     if not video_id:
