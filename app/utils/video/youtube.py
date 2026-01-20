@@ -316,6 +316,7 @@ async def download_youtube_video_via_api(
                     response = await client.post(
                         url=download_url,
                         json={"url": url},
+                        headers={"Accept": "application/json"},
                         follow_redirects=True,
                     )
                     if response.status_code != 200:
@@ -324,7 +325,8 @@ async def download_youtube_video_via_api(
                         )
                         response = await client.get(
                             url=download_url,
-                            params={"url": url},
+                            params={"url": url, "format": "json"},
+                            headers={"Accept": "application/json"},
                             follow_redirects=True,
                         )
                 except Exception as post_error:
@@ -332,7 +334,8 @@ async def download_youtube_video_via_api(
                     try:
                         response = await client.get(
                             url=download_url,
-                            params={"url": url},
+                            params={"url": url, "format": "json"},
+                            headers={"Accept": "application/json"},
                             follow_redirects=True,
                         )
                     except Exception as get_error:
@@ -352,10 +355,12 @@ async def download_youtube_video_via_api(
                 if response.status_code == 200:
                     try:
                         response_data = response.json()
+                        logger.info(f"API response: {response_data}")
+                        
                         video_url = response_data.get("url")
                         
                         if not video_url:
-                            logger.error("API response missing 'url' field")
+                            logger.error(f"API response missing 'url' field. Response: {response_data}")
                             if attempt < max_retries - 1:
                                 wait_time = 2 ** attempt
                                 logger.info(f"Retrying in {wait_time} seconds...")
@@ -366,9 +371,15 @@ async def download_youtube_video_via_api(
                         
                         logger.info(f"Got video URL from API: {video_url}")
                         
+                        logger.info(f"Downloading video from S3: {video_url}")
                         download_response = await client.get(
                             url=video_url,
                             follow_redirects=True,
+                        )
+                        
+                        logger.info(
+                            f"S3 response status: {download_response.status_code}, "
+                            f"Content-Length: {download_response.headers.get('content-length', 'unknown')}"
                         )
                         
                         if download_response.status_code == 200:
@@ -379,7 +390,9 @@ async def download_youtube_video_via_api(
                                         f.write(chunk)
                                         total_bytes += len(chunk)
 
-                            if output_path_obj.exists() and output_path_obj.stat().st_size > 0:
+                            logger.info(f"Downloaded {total_bytes} bytes from S3")
+
+                            if output_path_obj.exists() and output_path_obj.stat().st_size > 1024 * 1024:
                                 file_size = output_path_obj.stat().st_size
                                 logger.info(
                                     f"Download successful via API: {output_path} "
@@ -387,9 +400,19 @@ async def download_youtube_video_via_api(
                                 )
                                 return True
                             else:
-                                logger.warning("Downloaded file is empty or doesn't exist")
+                                file_size = output_path_obj.stat().st_size if output_path_obj.exists() else 0
+                                logger.warning(
+                                    f"Downloaded file is too small or empty: {file_size} bytes (min 1MB required)"
+                                )
                                 if output_path_obj.exists():
                                     output_path_obj.unlink()
+                                if attempt < max_retries - 1:
+                                    wait_time = 2 ** attempt
+                                    logger.info(f"Retrying in {wait_time} seconds...")
+                                    await asyncio.sleep(delay=wait_time)
+                                    continue
+                                else:
+                                    return False
                         else:
                             logger.warning(
                                 f"Failed to download from S3 URL: {download_response.status_code}"
