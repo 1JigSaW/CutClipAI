@@ -95,8 +95,7 @@ class YouTubeDownloader:
             },
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android_unplugged'],
-                    'player_skip': ['webpage'],
+                    'player_client': ['android', 'web'],
                 }
             },
             'postprocessors': [{

@@ -55,8 +55,7 @@ WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir --force-reinstall 'yt-dlp @ https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp-py3-none-any.whl'
+    pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
