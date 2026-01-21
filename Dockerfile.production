@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y \
     && apt-get install -y \
         ./google-chrome-stable_current_amd64.deb \
         fonts-liberation \
+        fonts-dejavu \
         libasound2 \
         libatk-bridge2.0-0 \
         libatk1.0-0 \

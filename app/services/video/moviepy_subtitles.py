@@ -55,14 +55,49 @@ class VideoProcessor:
             font_path = fonts_dir / f"{font_family}.ttf"
             if font_path.exists():
                 self.font_path = str(font_path)
+                logger.info(f"Using custom font from fonts directory: {self.font_path}")
             else:
-                # Fallback to Arial (system font)
-                self.font_path = "Arial"
-                logger.warning(f"Font {font_family} not found, using Arial")
+                self.font_path = self._find_system_font()
         else:
-            # Use system font
-            self.font_path = "Arial"
-            logger.info("Fonts directory not found, using system Arial font")
+            self.font_path = self._find_system_font()
+    
+    def _find_system_font(self) -> str:
+        """Find available system font for subtitles."""
+        # Try common system fonts that are usually available in Linux
+        # Liberation is installed in Dockerfile, so check it first
+        system_fonts = [
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf",
+        ]
+        
+        for font_path in system_fonts:
+            if Path(font_path).exists():
+                logger.info(f"✅ Found system font: {font_path}")
+                return font_path
+        
+        # If no system font found, try to use PIL's default font
+        try:
+            from PIL import ImageFont
+            # Try to get default font
+            try:
+                default_font = ImageFont.load_default()
+                logger.info("Using PIL default font (None)")
+                return None  # None means use PIL default
+            except Exception as e:
+                logger.warning(f"PIL default font failed: {e}")
+        except ImportError:
+            logger.warning("PIL ImageFont not available")
+        
+        # Last resort: try Liberation Sans by name (fontconfig might find it)
+        logger.warning(
+            f"No system fonts found at expected paths, trying 'Liberation Sans' as fallback. "
+            f"This may fail if fontconfig is not configured."
+        )
+        return "Liberation Sans"
 
     def get_optimal_encoding_settings(
         self,
@@ -623,17 +658,32 @@ def create_assemblyai_subtitles(
             caption_width = int(video_width * 0.9)
             caption_height = int(final_font_size * 2.5)
             
-            text_clip = TextClip(
-                text=text,
-                font=processor.font_path,
-                font_size=final_font_size,
-                color=font_color,
-                stroke_color='black',
-                stroke_width=2,
-                method='caption',
-                size=(caption_width, caption_height),
-                text_align='center'
-            ).with_duration(segment_duration).with_start(segment_start)
+            # Prepare font parameter - use None for PIL default or path for custom font
+            font_param = processor.font_path
+            
+            logger.info(
+                f"Creating subtitle TextClip | text='{text[:50]}...' | "
+                f"font={font_param} | font_size={final_font_size} | "
+                f"caption_size={caption_width}x{caption_height}"
+            )
+            
+            # TextClip can handle None font (uses PIL default) or font path
+            text_clip_kwargs = {
+                'text': text,
+                'font_size': final_font_size,
+                'color': font_color,
+                'stroke_color': 'black',
+                'stroke_width': 2,
+                'method': 'caption',
+                'size': (caption_width, caption_height),
+                'text_align': 'center'
+            }
+            
+            # Only add font parameter if it's not None
+            if font_param is not None:
+                text_clip_kwargs['font'] = font_param
+            
+            text_clip = TextClip(**text_clip_kwargs).with_duration(segment_duration).with_start(segment_start)
             
             # Position at 80% down (lower part of the screen)
             # Since we have a tall caption box, we position it so the text is where we want it
