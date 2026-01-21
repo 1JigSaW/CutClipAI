@@ -291,10 +291,12 @@ async def download_youtube_video_via_api(
     api_url = api_url.rstrip('/')
     if api_url.endswith('/api'):
         download_url = f"{api_url}/download-video/"
+        tasks_url = f"{api_url}/tasks/"
     else:
         download_url = f"{api_url}/api/download-video/"
+        tasks_url = f"{api_url}/api/tasks/"
     
-    logger.info(f"Downloading via external API: {download_url}")
+    logger.info(f"Downloading via external API (async mode): {download_url}")
 
     output_path_obj = Path(output_path)
     output_path_obj.parent.mkdir(parents=True, exist_ok=True)
@@ -311,245 +313,38 @@ async def download_youtube_video_via_api(
                     pool=60.0,
                 ),
             ) as client:
-                response = None
+                task_id = None
+                
                 try:
-                    response = await client.post(
+                    logger.info(f"Sending async request to API: {download_url}")
+                    response = await client.get(
                         url=download_url,
-                        json={"url": url},
+                        params={"url": url, "format": "json", "async": "true"},
                         headers={"Accept": "application/json"},
                         follow_redirects=True,
                     )
+                    
                     if response.status_code != 200:
                         logger.debug(
-                            f"POST returned {response.status_code}, trying GET..."
+                            f"GET returned {response.status_code}, trying POST..."
                         )
-                        response = await client.get(
+                        response = await client.post(
                             url=download_url,
-                            params={"url": url, "format": "json"},
+                            json={"url": url},
+                            params={"async": "true"},
                             headers={"Accept": "application/json"},
                             follow_redirects=True,
                         )
-                except Exception as post_error:
-                    logger.debug(f"POST request failed, trying GET: {post_error}")
-                    try:
-                        response = await client.get(
-                            url=download_url,
-                            params={"url": url, "format": "json"},
-                            headers={"Accept": "application/json"},
-                            follow_redirects=True,
-                        )
-                    except Exception as get_error:
-                        logger.error(f"Both POST and GET failed: {get_error}")
-                        raise
-
-                if not response:
-                    logger.error("No response received from API")
-                    if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt
-                        logger.info(f"Retrying in {wait_time} seconds...")
-                        await asyncio.sleep(delay=wait_time)
-                        continue
-                    else:
-                        return False
-
-                if response.status_code == 200:
-                    try:
-                        content_type = response.headers.get("content-type", "").lower()
-                        logger.info(f"API response Content-Type: {content_type}")
-                        logger.info(f"API response headers: {dict(response.headers)}")
+                    
+                    logger.info(f"API response status: {response.status_code}")
+                    
+                    if response.status_code in (200, 202):
+                        response_data = response.json()
+                        logger.info(f"API response: {response_data}")
                         
-                        if "application/json" in content_type:
-                            logger.info("API returned JSON response")
-                            response_data = response.json()
-                            logger.info(f"API response data: {response_data}")
-                            
-                            video_url = response_data.get("url")
-                            
-                            if not video_url:
-                                logger.error(f"API response missing 'url' field. Response: {response_data}")
-                                if attempt < max_retries - 1:
-                                    wait_time = 2 ** attempt
-                                    logger.info(f"Retrying in {wait_time} seconds...")
-                                    await asyncio.sleep(delay=wait_time)
-                                    continue
-                                else:
-                                    return False
-                            
-                            logger.info(f"Got video URL from API: {video_url}")
-                            
-                            logger.info(f"Downloading video from S3: {video_url}")
-                            
-                            logger.info("Creating S3 HTTP client with 1 hour read timeout...")
-                            s3_client = httpx.AsyncClient(
-                                timeout=httpx.Timeout(
-                                    connect=60.0,
-                                    read=3600.0,
-                                    write=60.0,
-                                    pool=60.0,
-                                ),
-                            )
-                            
-                            try:
-                                logger.info("Sending GET request to S3 URL...")
-                                logger.info(f"S3 URL: {video_url}")
-                                
-                                try:
-                                    download_response = await asyncio.wait_for(
-                                        s3_client.get(
-                                            url=video_url,
-                                            follow_redirects=True,
-                                        ),
-                                        timeout=120.0,
-                                    )
-                                    logger.info(f"S3 request completed, status: {download_response.status_code}")
-                                except asyncio.TimeoutError:
-                                    logger.error(
-                                        "S3 request timed out after 120 seconds. "
-                                        "This might indicate network issues or S3 is unreachable."
-                                    )
-                                    raise httpx.TimeoutException(
-                                        "S3 request timed out after 120 seconds"
-                                    )
-                                
-                                content_length = download_response.headers.get('content-length')
-                                expected_size = int(content_length) if content_length else None
-                                
-                                logger.info(
-                                    f"S3 response status: {download_response.status_code}, "
-                                    f"Content-Length: {content_length} bytes "
-                                    f"({expected_size // 1024 // 1024 if expected_size else 'unknown'}MB)"
-                                )
-                                
-                                if download_response.status_code == 200:
-                                    logger.info("Starting S3 download stream...")
-                                    total_bytes = 0
-                                    start_time = asyncio.get_event_loop().time()
-                                    last_log_time = start_time
-                                    last_log_bytes = 0
-                                    chunk_count = 0
-                                    
-                                    with open(output_path_obj, "wb") as f:
-                                        async for chunk in download_response.aiter_bytes(chunk_size=8192 * 1024):
-                                            if chunk:
-                                                f.write(chunk)
-                                                total_bytes += len(chunk)
-                                                chunk_count += 1
-                                                
-                                                if chunk_count == 1:
-                                                    logger.info(
-                                                        f"First chunk received: {len(chunk) // 1024 // 1024}MB, "
-                                                        f"total so far: {total_bytes // 1024 // 1024}MB"
-                                                    )
-                                                
-                                                current_time = asyncio.get_event_loop().time()
-                                                elapsed = current_time - last_log_time
-                                                
-                                                if elapsed >= 10.0:
-                                                    downloaded_mb = total_bytes // 1024 // 1024
-                                                    time_elapsed = current_time - start_time
-                                                    if elapsed > 0:
-                                                        speed_mb = (total_bytes - last_log_bytes) // 1024 // 1024 / elapsed * 60
-                                                    else:
-                                                        speed_mb = 0
-                                                    
-                                                    if expected_size:
-                                                        progress = (total_bytes / expected_size) * 100
-                                                        logger.info(
-                                                            f"Downloading from S3: {downloaded_mb}MB / "
-                                                            f"{expected_size // 1024 // 1024}MB ({progress:.1f}%) "
-                                                            f"@ {speed_mb:.1f} MB/min "
-                                                            f"(elapsed: {int(time_elapsed)}s, chunks: {chunk_count})"
-                                                        )
-                                                    else:
-                                                        logger.info(
-                                                            f"Downloading from S3: {downloaded_mb}MB "
-                                                            f"@ {speed_mb:.1f} MB/min "
-                                                            f"(elapsed: {int(time_elapsed)}s, chunks: {chunk_count})"
-                                                        )
-                                                    last_log_time = current_time
-                                                    last_log_bytes = total_bytes
-                                                elif chunk_count % 10 == 0:
-                                                    logger.debug(
-                                                        f"Received {chunk_count} chunks, "
-                                                        f"total: {total_bytes // 1024 // 1024}MB"
-                                                    )
-
-                                    logger.info(
-                                        f"Downloaded {total_bytes} bytes ({total_bytes // 1024 // 1024}MB) from S3"
-                                    )
-                                    
-                                    if output_path_obj.exists() and output_path_obj.stat().st_size > 1024 * 1024:
-                                        file_size = output_path_obj.stat().st_size
-                                        logger.info(
-                                            f"Download successful via API: {output_path} "
-                                            f"({file_size // 1024 // 1024}MB)"
-                                        )
-                                        await s3_client.aclose()
-                                        return True
-                                    else:
-                                        file_size = output_path_obj.stat().st_size if output_path_obj.exists() else 0
-                                        logger.warning(
-                                            f"Downloaded file is too small or empty: {file_size} bytes (min 1MB required)"
-                                        )
-                                        if output_path_obj.exists():
-                                            output_path_obj.unlink()
-                                        await s3_client.aclose()
-                                        if attempt < max_retries - 1:
-                                            wait_time = 2 ** attempt
-                                            logger.info(f"Retrying in {wait_time} seconds...")
-                                            await asyncio.sleep(delay=wait_time)
-                                            continue
-                                        else:
-                                            return False
-                                else:
-                                    await s3_client.aclose()
-                                    logger.warning(
-                                        f"Failed to download from S3 URL: {download_response.status_code}"
-                                    )
-                                    if attempt < max_retries - 1:
-                                        wait_time = 2 ** attempt
-                                        logger.info(f"Retrying in {wait_time} seconds...")
-                                        await asyncio.sleep(delay=wait_time)
-                                        continue
-                                    else:
-                                        return False
-                            except httpx.TimeoutException as timeout_error:
-                                await s3_client.aclose()
-                                logger.error(
-                                    f"Timeout connecting to S3 (connect timeout: 60s, read timeout: 3600s): {timeout_error}"
-                                )
-                                if attempt < max_retries - 1:
-                                    wait_time = 2 ** attempt
-                                    logger.info(f"Retrying in {wait_time} seconds...")
-                                    await asyncio.sleep(delay=wait_time)
-                                    continue
-                                else:
-                                    return False
-                            except httpx.ConnectError as connect_error:
-                                await s3_client.aclose()
-                                logger.error(f"Failed to connect to S3 URL: {connect_error}")
-                                if attempt < max_retries - 1:
-                                    wait_time = 2 ** attempt
-                                    logger.info(f"Retrying in {wait_time} seconds...")
-                                    await asyncio.sleep(delay=wait_time)
-                                    continue
-                                else:
-                                    return False
-                            except Exception as s3_error:
-                                await s3_client.aclose()
-                                logger.error(f"Error downloading from S3: {s3_error}", exc_info=True)
-                                if attempt < max_retries - 1:
-                                    wait_time = 2 ** attempt
-                                    logger.info(f"Retrying in {wait_time} seconds...")
-                                    await asyncio.sleep(delay=wait_time)
-                                    continue
-                                else:
-                                    return False
-                        else:
-                            logger.error(
-                                f"API returned non-JSON response (Content-Type: {content_type}). "
-                                f"Expected JSON with 'url' field pointing to S3."
-                            )
+                        task_id = response_data.get("task_id")
+                        if not task_id:
+                            logger.error(f"API response missing 'task_id': {response_data}")
                             if attempt < max_retries - 1:
                                 wait_time = 2 ** attempt
                                 logger.info(f"Retrying in {wait_time} seconds...")
@@ -557,9 +352,10 @@ async def download_youtube_video_via_api(
                                 continue
                             else:
                                 return False
-                                
-                    except Exception as e:
-                        logger.error(f"Error parsing API response or downloading: {e}")
+                        
+                        logger.info(f"Got task_id: {task_id}, checking status...")
+                    else:
+                        logger.error(f"API returned status {response.status_code}")
                         if attempt < max_retries - 1:
                             wait_time = 2 ** attempt
                             logger.info(f"Retrying in {wait_time} seconds...")
@@ -567,23 +363,9 @@ async def download_youtube_video_via_api(
                             continue
                         else:
                             return False
-
-                elif response.status_code == 400:
-                    try:
-                        error_data = response.json()
-                        error_msg = error_data.get("error", "Bad request")
-                    except Exception:
-                        error_msg = "Bad request"
-                    logger.error(f"API returned 400: {error_msg}")
-                    return False
-
-                elif response.status_code == 500:
-                    try:
-                        error_data = response.json()
-                        error_msg = error_data.get("error", "Internal server error")
-                    except Exception:
-                        error_msg = "Internal server error"
-                    logger.warning(f"API returned 500 (attempt {attempt + 1}/{max_retries}): {error_msg}")
+                            
+                except Exception as request_error:
+                    logger.error(f"Error sending request to API: {request_error}")
                     if attempt < max_retries - 1:
                         wait_time = 2 ** attempt
                         logger.info(f"Retrying in {wait_time} seconds...")
@@ -592,36 +374,239 @@ async def download_youtube_video_via_api(
                     else:
                         return False
 
-                elif response.status_code == 524:
-                    try:
-                        response_text = response.text[:500]
-                        logger.warning(
-                            f"API returned 524 (Cloudflare timeout) "
-                            f"(attempt {attempt + 1}/{max_retries}). "
-                            f"Response body: {response_text}"
-                        )
-                    except Exception:
-                        logger.warning(
-                            f"API returned 524 (Cloudflare timeout) "
-                            f"(attempt {attempt + 1}/{max_retries})"
-                        )
+                if not task_id:
+                    logger.error("No task_id received from API")
                     if attempt < max_retries - 1:
-                        wait_time = min(180 + (attempt * 30), 300)
-                        logger.info(
-                            f"Waiting {wait_time} seconds before retry "
-                            f"(API may still be processing the request, Cloudflare timeout is 100s, "
-                            f"API typically takes 2-3 minutes to process)..."
-                        )
+                        wait_time = 2 ** attempt
+                        logger.info(f"Retrying in {wait_time} seconds...")
                         await asyncio.sleep(delay=wait_time)
                         continue
                     else:
-                        logger.error("API timeout after all retries")
                         return False
 
+                status_url = f"{tasks_url}{task_id}/status/"
+                logger.info(f"Checking task status: {status_url}")
+                
+                max_status_checks = 120
+                status_check_interval = 5
+                video_url = None
+                
+                for status_check in range(max_status_checks):
+                    try:
+                        status_response = await client.get(
+                            url=status_url,
+                            headers={"Accept": "application/json"},
+                            follow_redirects=True,
+                        )
+                        
+                        if status_response.status_code == 200:
+                            status_data = status_response.json()
+                            ready = status_data.get("ready", False)
+                            successful = status_data.get("successful", False)
+                            
+                            logger.info(
+                                f"Task status check {status_check + 1}/{max_status_checks}: "
+                                f"ready={ready}, successful={successful}"
+                            )
+                            
+                            if ready and successful:
+                                result = status_data.get("result", {})
+                                video_url = result.get("url")
+                                
+                                if not video_url:
+                                    logger.error(f"Task completed but no URL in result: {result}")
+                                    return False
+                                
+                                logger.info(f"Got video URL from task result: {video_url}")
+                                break
+                            elif ready and not successful:
+                                error = status_data.get("error", "Unknown error")
+                                logger.error(f"Task failed: {error}")
+                                if attempt < max_retries - 1:
+                                    wait_time = 2 ** attempt
+                                    logger.info(f"Retrying in {wait_time} seconds...")
+                                    await asyncio.sleep(delay=wait_time)
+                                    break
+                                else:
+                                    return False
+                            else:
+                                await asyncio.sleep(delay=status_check_interval)
+                                continue
+                        else:
+                            logger.warning(
+                                f"Status check returned {status_response.status_code}, "
+                                f"retrying in {status_check_interval} seconds..."
+                            )
+                            await asyncio.sleep(delay=status_check_interval)
+                            continue
+                            
+                    except Exception as status_error:
+                        logger.warning(
+                            f"Error checking task status: {status_error}, "
+                            f"retrying in {status_check_interval} seconds..."
+                        )
+                        await asyncio.sleep(delay=status_check_interval)
+                        continue
                 else:
-                    logger.warning(
-                        f"API returned status {response.status_code} "
-                        f"(attempt {attempt + 1}/{max_retries})"
+                    logger.error("Task status check timeout")
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt
+                        logger.info(f"Retrying in {wait_time} seconds...")
+                        await asyncio.sleep(delay=wait_time)
+                        continue
+                    else:
+                        return False
+
+                if not video_url:
+                    logger.error("No video URL received from task")
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt
+                        logger.info(f"Retrying in {wait_time} seconds...")
+                        await asyncio.sleep(delay=wait_time)
+                        continue
+                    else:
+                        return False
+
+                logger.info(f"Downloading video from S3: {video_url}")
+                
+                logger.info("Creating S3 HTTP client with 1 hour read timeout...")
+                s3_client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(
+                        connect=60.0,
+                        read=3600.0,
+                        write=60.0,
+                        pool=60.0,
+                    ),
+                )
+                
+                try:
+                    logger.info("Sending GET request to S3 URL...")
+                    logger.info(f"S3 URL: {video_url}")
+                    
+                    try:
+                        download_response = await asyncio.wait_for(
+                            s3_client.get(
+                                url=video_url,
+                                follow_redirects=True,
+                            ),
+                            timeout=120.0,
+                        )
+                        logger.info(f"S3 request completed, status: {download_response.status_code}")
+                    except asyncio.TimeoutError:
+                        logger.error(
+                            "S3 request timed out after 120 seconds. "
+                            "This might indicate network issues or S3 is unreachable."
+                        )
+                        raise httpx.TimeoutException(
+                            "S3 request timed out after 120 seconds"
+                        )
+                    
+                    content_length = download_response.headers.get('content-length')
+                    expected_size = int(content_length) if content_length else None
+                    
+                    logger.info(
+                        f"S3 response status: {download_response.status_code}, "
+                        f"Content-Length: {content_length} bytes "
+                        f"({expected_size // 1024 // 1024 if expected_size else 'unknown'}MB)"
+                    )
+                    
+                    if download_response.status_code == 200:
+                        logger.info("Starting S3 download stream...")
+                        total_bytes = 0
+                        start_time = asyncio.get_event_loop().time()
+                        last_log_time = start_time
+                        last_log_bytes = 0
+                        chunk_count = 0
+                        
+                        with open(output_path_obj, "wb") as f:
+                            async for chunk in download_response.aiter_bytes(chunk_size=8192 * 1024):
+                                if chunk:
+                                    f.write(chunk)
+                                    total_bytes += len(chunk)
+                                    chunk_count += 1
+                                    
+                                    if chunk_count == 1:
+                                        logger.info(
+                                            f"First chunk received: {len(chunk) // 1024 // 1024}MB, "
+                                            f"total so far: {total_bytes // 1024 // 1024}MB"
+                                        )
+                                    
+                                    current_time = asyncio.get_event_loop().time()
+                                    elapsed = current_time - last_log_time
+                                    
+                                    if elapsed >= 10.0:
+                                        downloaded_mb = total_bytes // 1024 // 1024
+                                        time_elapsed = current_time - start_time
+                                        if elapsed > 0:
+                                            speed_mb = (total_bytes - last_log_bytes) // 1024 // 1024 / elapsed * 60
+                                        else:
+                                            speed_mb = 0
+                                        
+                                        if expected_size:
+                                            progress = (total_bytes / expected_size) * 100
+                                            logger.info(
+                                                f"Downloading from S3: {downloaded_mb}MB / "
+                                                f"{expected_size // 1024 // 1024}MB ({progress:.1f}%) "
+                                                f"@ {speed_mb:.1f} MB/min "
+                                                f"(elapsed: {int(time_elapsed)}s, chunks: {chunk_count})"
+                                            )
+                                        else:
+                                            logger.info(
+                                                f"Downloading from S3: {downloaded_mb}MB "
+                                                f"@ {speed_mb:.1f} MB/min "
+                                                f"(elapsed: {int(time_elapsed)}s, chunks: {chunk_count})"
+                                            )
+                                        last_log_time = current_time
+                                        last_log_bytes = total_bytes
+                                    elif chunk_count % 10 == 0:
+                                        logger.debug(
+                                            f"Received {chunk_count} chunks, "
+                                            f"total: {total_bytes // 1024 // 1024}MB"
+                                        )
+
+                        logger.info(
+                            f"Downloaded {total_bytes} bytes ({total_bytes // 1024 // 1024}MB) from S3"
+                        )
+                        
+                        if output_path_obj.exists() and output_path_obj.stat().st_size > 1024 * 1024:
+                            file_size = output_path_obj.stat().st_size
+                            logger.info(
+                                f"Download successful via API: {output_path} "
+                                f"({file_size // 1024 // 1024}MB)"
+                            )
+                            await s3_client.aclose()
+                            return True
+                        else:
+                            file_size = output_path_obj.stat().st_size if output_path_obj.exists() else 0
+                            logger.warning(
+                                f"Downloaded file is too small or empty: {file_size} bytes (min 1MB required)"
+                            )
+                            if output_path_obj.exists():
+                                output_path_obj.unlink()
+                            await s3_client.aclose()
+                            if attempt < max_retries - 1:
+                                wait_time = 2 ** attempt
+                                logger.info(f"Retrying in {wait_time} seconds...")
+                                await asyncio.sleep(delay=wait_time)
+                                continue
+                            else:
+                                return False
+                    else:
+                        await s3_client.aclose()
+                        logger.warning(
+                            f"Failed to download from S3 URL: {download_response.status_code}"
+                        )
+                        if attempt < max_retries - 1:
+                            wait_time = 2 ** attempt
+                            logger.info(f"Retrying in {wait_time} seconds...")
+                            await asyncio.sleep(delay=wait_time)
+                            continue
+                        else:
+                            return False
+                except httpx.TimeoutException as timeout_error:
+                    await s3_client.aclose()
+                    logger.error(
+                        f"Timeout connecting to S3 (connect timeout: 60s, read timeout: 3600s): {timeout_error}"
                     )
                     if attempt < max_retries - 1:
                         wait_time = 2 ** attempt
@@ -630,16 +615,26 @@ async def download_youtube_video_via_api(
                         continue
                     else:
                         return False
-
-        except httpx.TimeoutException as e:
-            logger.warning(f"Timeout during download attempt {attempt + 1}: {e}")
-            if attempt < max_retries - 1:
-                wait_time = 2 ** attempt
-                logger.info(f"Retrying in {wait_time} seconds...")
-                await asyncio.sleep(delay=wait_time)
-                continue
-            else:
-                return False
+                except httpx.ConnectError as connect_error:
+                    await s3_client.aclose()
+                    logger.error(f"Failed to connect to S3 URL: {connect_error}")
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt
+                        logger.info(f"Retrying in {wait_time} seconds...")
+                        await asyncio.sleep(delay=wait_time)
+                        continue
+                    else:
+                        return False
+                except Exception as s3_error:
+                    await s3_client.aclose()
+                    logger.error(f"Error downloading from S3: {s3_error}", exc_info=True)
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt
+                        logger.info(f"Retrying in {wait_time} seconds...")
+                        await asyncio.sleep(delay=wait_time)
+                        continue
+                    else:
+                        return False
 
         except Exception as e:
             logger.error(f"Unexpected error during download attempt {attempt + 1}: {e}", exc_info=True)
@@ -650,8 +645,7 @@ async def download_youtube_video_via_api(
                 continue
             else:
                 return False
-
-    logger.error("All download attempts via API failed")
+    
     return False
 
 
