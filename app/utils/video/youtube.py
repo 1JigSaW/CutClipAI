@@ -470,10 +470,10 @@ async def download_youtube_video_via_api(
                 logger.info("Creating S3 HTTP client with 1 hour read timeout...")
                 s3_client = httpx.AsyncClient(
                     timeout=httpx.Timeout(
-                        connect=60.0,
+                        connect=10.0,
                         read=3600.0,
                         write=60.0,
-                        pool=60.0,
+                        pool=10.0,
                     ),
                 )
                 
@@ -481,7 +481,9 @@ async def download_youtube_video_via_api(
                     logger.info("Sending GET request to S3 URL...")
                     logger.info(f"S3 URL: {video_url}")
                     
+                    request_start = time.time()
                     try:
+                        logger.info("Waiting for S3 response (timeout: 120s)...")
                         download_response = await asyncio.wait_for(
                             s3_client.get(
                                 url=video_url,
@@ -489,14 +491,19 @@ async def download_youtube_video_via_api(
                             ),
                             timeout=120.0,
                         )
-                        logger.info(f"S3 request completed, status: {download_response.status_code}")
+                        request_duration = time.time() - request_start
+                        logger.info(
+                            f"S3 request completed in {request_duration:.2f} seconds, "
+                            f"status: {download_response.status_code}"
+                        )
                     except asyncio.TimeoutError:
+                        request_duration = time.time() - request_start
                         logger.error(
-                            "S3 request timed out after 120 seconds. "
+                            f"S3 request timed out after {request_duration:.2f} seconds. "
                             "This might indicate network issues or S3 is unreachable."
                         )
                         raise httpx.TimeoutException(
-                            "S3 request timed out after 120 seconds"
+                            f"S3 request timed out after {request_duration:.2f} seconds"
                         )
                     
                     content_length = download_response.headers.get('content-length')
