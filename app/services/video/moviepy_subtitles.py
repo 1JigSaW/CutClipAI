@@ -459,20 +459,35 @@ def load_cached_transcript_data(
     ]
     
     for cache_path in cache_paths:
+        logger.info(
+            f"🔍 Checking cache path | path={cache_path} | exists={cache_path.exists()}"
+        )
         if cache_path.exists():
             try:
+                cache_size = cache_path.stat().st_size
+                logger.info(
+                    f"✅ Found cache file | path={cache_path} | size={cache_size} bytes"
+                )
                 with open(cache_path, 'r') as f:
                     data = json.load(f)
-                    logger.info(f"Loaded transcript cache | path={cache_path}")
-                    return data
+                words_count = len(data.get('words', []))
+                logger.info(
+                    f"✅ Loaded transcript cache | path={cache_path} | "
+                    f"words_count={words_count} | cache_size={cache_size} bytes"
+                )
+                return data
             except Exception as e:
-                logger.warning(f"Failed to load transcript cache {cache_path}: {e}")
+                logger.error(
+                    f"❌ Failed to load transcript cache {cache_path} | error={e}",
+                    exc_info=True
+                )
                 continue
     
-    logger.warning(
-        f"No transcript cache found for {video_path} | "
+    logger.error(
+        f"❌ No transcript cache found for {video_path} | "
         f"Tried paths: {[str(p) for p in cache_paths]} | "
-        f"Video exists: {video_path.exists()}"
+        f"Video exists: {video_path.exists()} | "
+        f"Video path: {video_path.resolve() if video_path.exists() else 'N/A'}"
     )
     return None
 
@@ -496,8 +511,14 @@ def create_assemblyai_subtitles(
         video_path = Path(video_path)
     
     logger.info(
-        f"Loading transcript cache for subtitles | video_path={video_path} | "
+        f"🎬 Loading transcript cache for subtitles | video_path={video_path} | "
         f"clip_start={clip_start:.2f}s | clip_end={clip_end:.2f}s"
+    )
+    
+    expected_cache_path = video_path.with_suffix('.assemblyai_cache.json')
+    logger.info(
+        f"🔍 Looking for cache file | expected_path={expected_cache_path} | "
+        f"exists={expected_cache_path.exists()}"
     )
     
     transcript_data = load_cached_transcript_data(video_path)

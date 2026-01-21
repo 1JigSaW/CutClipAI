@@ -67,14 +67,33 @@ class AssemblyAITranscriptionService:
 
         cache_path = video_path.with_suffix('.assemblyai_cache.json')
         
+        logger.info(
+            f"🔍 Checking for transcription cache | "
+            f"video_path={video_path} | "
+            f"cache_path={cache_path} | "
+            f"cache_exists={cache_path.exists()} | "
+            f"use_cache={use_cache}"
+        )
+        
         if use_cache and cache_path.exists():
             try:
+                cache_size = cache_path.stat().st_size
                 with open(cache_path, 'r') as f:
                     cached_data = json.load(f)
-                    logger.info(f"Using cached transcription | cache_path={cache_path}")
-                    return cached_data
+                words_count = len(cached_data.get('words', []))
+                logger.info(
+                    f"✅ Using cached transcription | "
+                    f"cache_path={cache_path} | "
+                    f"cache_size={cache_size} bytes | "
+                    f"words_count={words_count}"
+                )
+                return cached_data
             except Exception as e:
-                logger.warning(f"Failed to load cache, will transcribe | error={e}")
+                logger.error(
+                    f"❌ Failed to load cache, will transcribe | "
+                    f"cache_path={cache_path} | error={e}",
+                    exc_info=True
+                )
 
         config_obj = aai.TranscriptionConfig(
             speaker_labels=False,
