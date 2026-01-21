@@ -404,34 +404,58 @@ async def download_youtube_video_via_api(
                                 )
                                 
                                 if download_response.status_code == 200:
+                                    logger.info("Starting S3 download stream...")
                                     total_bytes = 0
-                                    last_log_time = asyncio.get_event_loop().time()
+                                    start_time = asyncio.get_event_loop().time()
+                                    last_log_time = start_time
                                     last_log_bytes = 0
+                                    chunk_count = 0
                                     
                                     with open(output_path_obj, "wb") as f:
                                         async for chunk in download_response.aiter_bytes(chunk_size=8192 * 1024):
                                             if chunk:
                                                 f.write(chunk)
                                                 total_bytes += len(chunk)
+                                                chunk_count += 1
+                                                
+                                                if chunk_count == 1:
+                                                    logger.info(
+                                                        f"First chunk received: {len(chunk) // 1024 // 1024}MB, "
+                                                        f"total so far: {total_bytes // 1024 // 1024}MB"
+                                                    )
                                                 
                                                 current_time = asyncio.get_event_loop().time()
-                                                if current_time - last_log_time >= 30.0:
+                                                elapsed = current_time - last_log_time
+                                                
+                                                if elapsed >= 10.0:
                                                     downloaded_mb = total_bytes // 1024 // 1024
-                                                    speed_mb = (total_bytes - last_log_bytes) // 1024 // 1024 / (current_time - last_log_time) * 60
+                                                    time_elapsed = current_time - start_time
+                                                    if elapsed > 0:
+                                                        speed_mb = (total_bytes - last_log_bytes) // 1024 // 1024 / elapsed * 60
+                                                    else:
+                                                        speed_mb = 0
+                                                    
                                                     if expected_size:
                                                         progress = (total_bytes / expected_size) * 100
                                                         logger.info(
                                                             f"Downloading from S3: {downloaded_mb}MB / "
                                                             f"{expected_size // 1024 // 1024}MB ({progress:.1f}%) "
-                                                            f"@ {speed_mb:.1f} MB/min"
+                                                            f"@ {speed_mb:.1f} MB/min "
+                                                            f"(elapsed: {int(time_elapsed)}s, chunks: {chunk_count})"
                                                         )
                                                     else:
                                                         logger.info(
                                                             f"Downloading from S3: {downloaded_mb}MB "
-                                                            f"@ {speed_mb:.1f} MB/min"
+                                                            f"@ {speed_mb:.1f} MB/min "
+                                                            f"(elapsed: {int(time_elapsed)}s, chunks: {chunk_count})"
                                                         )
                                                     last_log_time = current_time
                                                     last_log_bytes = total_bytes
+                                                elif chunk_count % 10 == 0:
+                                                    logger.debug(
+                                                        f"Received {chunk_count} chunks, "
+                                                        f"total: {total_bytes // 1024 // 1024}MB"
+                                                    )
 
                                     logger.info(
                                         f"Downloaded {total_bytes} bytes ({total_bytes // 1024 // 1024}MB) from S3"
