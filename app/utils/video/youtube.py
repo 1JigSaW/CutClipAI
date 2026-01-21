@@ -478,13 +478,24 @@ async def download_youtube_video_via_api(
                         return False
 
                 elif response.status_code == 524:
-                    logger.warning(
-                        f"API returned 524 (Cloudflare timeout) "
-                        f"(attempt {attempt + 1}/{max_retries})"
-                    )
+                    try:
+                        response_text = response.text[:500]
+                        logger.warning(
+                            f"API returned 524 (Cloudflare timeout) "
+                            f"(attempt {attempt + 1}/{max_retries}). "
+                            f"Response body: {response_text}"
+                        )
+                    except Exception:
+                        logger.warning(
+                            f"API returned 524 (Cloudflare timeout) "
+                            f"(attempt {attempt + 1}/{max_retries})"
+                        )
                     if attempt < max_retries - 1:
-                        wait_time = 10
-                        logger.info(f"Retrying in {wait_time} seconds...")
+                        wait_time = 30
+                        logger.info(
+                            f"Waiting {wait_time} seconds before retry "
+                            f"(API may still be processing the request)..."
+                        )
                         await asyncio.sleep(delay=wait_time)
                         continue
                     else:
