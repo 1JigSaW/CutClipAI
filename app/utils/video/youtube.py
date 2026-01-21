@@ -379,6 +379,7 @@ async def download_youtube_video_via_api(
                             
                             logger.info(f"Downloading video from S3: {video_url}")
                             
+                            logger.info("Creating S3 HTTP client with 1 hour read timeout...")
                             s3_client = httpx.AsyncClient(
                                 timeout=httpx.Timeout(
                                     connect=60.0,
@@ -389,10 +390,12 @@ async def download_youtube_video_via_api(
                             )
                             
                             try:
+                                logger.info("Sending GET request to S3 URL...")
                                 download_response = await s3_client.get(
                                     url=video_url,
                                     follow_redirects=True,
                                 )
+                                logger.info(f"S3 request completed, status: {download_response.status_code}")
                                 
                                 content_length = download_response.headers.get('content-length')
                                 expected_size = int(content_length) if content_length else None
@@ -496,6 +499,28 @@ async def download_youtube_video_via_api(
                                         continue
                                     else:
                                         return False
+                            except httpx.TimeoutException as timeout_error:
+                                await s3_client.aclose()
+                                logger.error(
+                                    f"Timeout connecting to S3 (connect timeout: 60s, read timeout: 3600s): {timeout_error}"
+                                )
+                                if attempt < max_retries - 1:
+                                    wait_time = 2 ** attempt
+                                    logger.info(f"Retrying in {wait_time} seconds...")
+                                    await asyncio.sleep(delay=wait_time)
+                                    continue
+                                else:
+                                    return False
+                            except httpx.ConnectError as connect_error:
+                                await s3_client.aclose()
+                                logger.error(f"Failed to connect to S3 URL: {connect_error}")
+                                if attempt < max_retries - 1:
+                                    wait_time = 2 ** attempt
+                                    logger.info(f"Retrying in {wait_time} seconds...")
+                                    await asyncio.sleep(delay=wait_time)
+                                    continue
+                                else:
+                                    return False
                             except Exception as s3_error:
                                 await s3_client.aclose()
                                 logger.error(f"Error downloading from S3: {s3_error}", exc_info=True)
