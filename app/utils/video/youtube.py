@@ -480,6 +480,7 @@ async def download_youtube_video_via_api(
                         max_connections=10,
                     ),
                     verify=True,
+                    http2=False,
                 )
                 
                 try:
@@ -487,13 +488,18 @@ async def download_youtube_video_via_api(
                     logger.info(f"S3 URL: {video_url}")
                     
                     request_start = time.time()
+                    connect_start = time.time()
                     try:
                         logger.info("Waiting for S3 response (httpx timeout: connect=30s, read=3600s)...")
+                        logger.info("Attempting to connect to S3...")
                         
                         download_response = await s3_client.get(
                             url=video_url,
                             follow_redirects=True,
                         )
+                        
+                        connect_duration = time.time() - connect_start
+                        logger.info(f"Connected to S3 in {connect_duration:.2f} seconds")
                         request_duration = time.time() - request_start
                         logger.info(
                             f"S3 request completed in {request_duration:.2f} seconds, "
