@@ -466,183 +466,45 @@ async def download_youtube_video_via_api(
                     else:
                         return False
 
-                logger.info(f"Downloading video from S3: {video_url}")
+                logger.info(f"Downloading video from S3 using curl: {video_url}")
                 
-                logger.info("Creating S3 HTTP client with 1 hour read timeout...")
-                s3_client = httpx.AsyncClient(
-                    timeout=httpx.Timeout(
-                        connect=30.0,
-                        read=3600.0,
-                        write=60.0,
-                        pool=30.0,
-                    ),
-                    limits=httpx.Limits(
-                        max_keepalive_connections=5,
-                        max_connections=10,
-                    ),
-                    verify=True,
-                    http2=False,
-                )
-                
+                download_start = time.time()
                 try:
-                    logger.info("Sending GET request to S3 URL...")
-                    logger.info(f"S3 URL: {video_url}")
+                    logger.info("Starting curl download (timeout: 3600s)...")
                     
-                    request_start = time.time()
-                    connect_start = time.time()
-                    try:
-                        logger.info("Waiting for S3 response (httpx timeout: connect=30s, read=3600s)...")
-                        logger.info("Attempting to connect to S3...")
-                        
-                        download_response = await s3_client.get(
-                            url=video_url,
-                            follow_redirects=True,
-                        )
-                        
-                        connect_duration = time.time() - connect_start
-                        logger.info(f"Connected to S3 in {connect_duration:.2f} seconds")
-                        request_duration = time.time() - request_start
-                        logger.info(
-                            f"S3 request completed in {request_duration:.2f} seconds, "
-                            f"status: {download_response.status_code}"
-                        )
-                    except httpx.TimeoutException as httpx_timeout:
-                        request_duration = time.time() - request_start
-                        logger.warning(
-                            f"httpx.TimeoutException after {request_duration:.2f} seconds: {httpx_timeout}. "
-                            "Trying curl as fallback..."
-                        )
-                        await s3_client.aclose()
-                        
-                        logger.info("Using curl to download from S3...")
-                        try:
-                            curl_process = await asyncio.create_subprocess_exec(
-                                'curl',
-                                '-L',
-                                '--max-time', '3600',
-                                '--output', str(output_path_obj),
-                                video_url,
-                                stdout=asyncio.subprocess.PIPE,
-                                stderr=asyncio.subprocess.PIPE,
-                            )
-                            
-                            stdout, stderr = await curl_process.communicate()
-                            
-                            if curl_process.returncode == 0:
-                                if output_path_obj.exists() and output_path_obj.stat().st_size > 1024 * 1024:
-                                    file_size = output_path_obj.stat().st_size
-                                    logger.info(
-                                        f"Download successful via curl: {output_path} "
-                                        f"({file_size // 1024 // 1024}MB)"
-                                    )
-                                    return True
-                                else:
-                                    logger.error("curl downloaded file is too small or empty")
-                                    if output_path_obj.exists():
-                                        output_path_obj.unlink()
-                                    return False
-                            else:
-                                logger.error(f"curl failed with return code {curl_process.returncode}: {stderr.decode()}")
-                                if output_path_obj.exists():
-                                    output_path_obj.unlink()
-                                return False
-                        except Exception as curl_error:
-                            logger.error(f"Error using curl: {curl_error}", exc_info=True)
-                            if output_path_obj.exists():
-                                output_path_obj.unlink()
-                            return False
-                    except Exception as s3_req_error:
-                        request_duration = time.time() - request_start
-                        logger.error(
-                            f"Error during S3 request after {request_duration:.2f} seconds: {s3_req_error}",
-                            exc_info=True
-                        )
-                        await s3_client.aclose()
-                        raise
-                    
-                    content_length = download_response.headers.get('content-length')
-                    expected_size = int(content_length) if content_length else None
-                    
-                    logger.info(
-                        f"S3 response status: {download_response.status_code}, "
-                        f"Content-Length: {content_length} bytes "
-                        f"({expected_size // 1024 // 1024 if expected_size else 'unknown'}MB)"
+                    curl_process = await asyncio.create_subprocess_exec(
+                        'curl',
+                        '-L',
+                        '--max-time', '3600',
+                        '--progress-bar',
+                        '--output', str(output_path_obj),
+                        video_url,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
                     )
                     
-                    if download_response.status_code == 200:
-                        logger.info("Starting S3 download stream...")
-                        total_bytes = 0
-                        start_time = asyncio.get_event_loop().time()
-                        last_log_time = start_time
-                        last_log_bytes = 0
-                        chunk_count = 0
-                        
-                        with open(output_path_obj, "wb") as f:
-                            async for chunk in download_response.aiter_bytes(chunk_size=8192 * 1024):
-                                if chunk:
-                                    f.write(chunk)
-                                    total_bytes += len(chunk)
-                                    chunk_count += 1
-                                    
-                                    if chunk_count == 1:
-                                        logger.info(
-                                            f"First chunk received: {len(chunk) // 1024 // 1024}MB, "
-                                            f"total so far: {total_bytes // 1024 // 1024}MB"
-                                        )
-                                    
-                                    current_time = asyncio.get_event_loop().time()
-                                    elapsed = current_time - last_log_time
-                                    
-                                    if elapsed >= 10.0:
-                                        downloaded_mb = total_bytes // 1024 // 1024
-                                        time_elapsed = current_time - start_time
-                                        if elapsed > 0:
-                                            speed_mb = (total_bytes - last_log_bytes) // 1024 // 1024 / elapsed * 60
-                                        else:
-                                            speed_mb = 0
-                                        
-                                        if expected_size:
-                                            progress = (total_bytes / expected_size) * 100
-                                            logger.info(
-                                                f"Downloading from S3: {downloaded_mb}MB / "
-                                                f"{expected_size // 1024 // 1024}MB ({progress:.1f}%) "
-                                                f"@ {speed_mb:.1f} MB/min "
-                                                f"(elapsed: {int(time_elapsed)}s, chunks: {chunk_count})"
-                                            )
-                                        else:
-                                            logger.info(
-                                                f"Downloading from S3: {downloaded_mb}MB "
-                                                f"@ {speed_mb:.1f} MB/min "
-                                                f"(elapsed: {int(time_elapsed)}s, chunks: {chunk_count})"
-                                            )
-                                        last_log_time = current_time
-                                        last_log_bytes = total_bytes
-                                    elif chunk_count % 10 == 0:
-                                        logger.debug(
-                                            f"Received {chunk_count} chunks, "
-                                            f"total: {total_bytes // 1024 // 1024}MB"
-                                        )
-
-                        logger.info(
-                            f"Downloaded {total_bytes} bytes ({total_bytes // 1024 // 1024}MB) from S3"
-                        )
-                        
+                    logger.info("Waiting for curl to complete...")
+                    stdout, stderr = await curl_process.communicate()
+                    
+                    download_duration = time.time() - download_start
+                    
+                    if curl_process.returncode == 0:
                         if output_path_obj.exists() and output_path_obj.stat().st_size > 1024 * 1024:
                             file_size = output_path_obj.stat().st_size
                             logger.info(
-                                f"Download successful via API: {output_path} "
-                                f"({file_size // 1024 // 1024}MB)"
+                                f"Download successful via curl: {output_path} "
+                                f"({file_size // 1024 // 1024}MB) "
+                                f"in {download_duration:.2f} seconds"
                             )
-                            await s3_client.aclose()
                             return True
                         else:
                             file_size = output_path_obj.stat().st_size if output_path_obj.exists() else 0
-                            logger.warning(
-                                f"Downloaded file is too small or empty: {file_size} bytes (min 1MB required)"
+                            logger.error(
+                                f"curl downloaded file is too small or empty: {file_size} bytes "
+                                f"(min 1MB required)"
                             )
                             if output_path_obj.exists():
                                 output_path_obj.unlink()
-                            await s3_client.aclose()
                             if attempt < max_retries - 1:
                                 wait_time = 2 ** attempt
                                 logger.info(f"Retrying in {wait_time} seconds...")
@@ -651,10 +513,13 @@ async def download_youtube_video_via_api(
                             else:
                                 return False
                     else:
-                        await s3_client.aclose()
-                        logger.warning(
-                            f"Failed to download from S3 URL: {download_response.status_code}"
+                        stderr_text = stderr.decode() if stderr else "Unknown error"
+                        logger.error(
+                            f"curl failed with return code {curl_process.returncode} "
+                            f"after {download_duration:.2f} seconds: {stderr_text}"
                         )
+                        if output_path_obj.exists():
+                            output_path_obj.unlink()
                         if attempt < max_retries - 1:
                             wait_time = 2 ** attempt
                             logger.info(f"Retrying in {wait_time} seconds...")
@@ -662,31 +527,15 @@ async def download_youtube_video_via_api(
                             continue
                         else:
                             return False
-                except httpx.TimeoutException as timeout_error:
-                    await s3_client.aclose()
+                            
+                except Exception as curl_error:
+                    download_duration = time.time() - download_start
                     logger.error(
-                        f"Timeout connecting to S3 (connect timeout: 60s, read timeout: 3600s): {timeout_error}"
+                        f"Error using curl after {download_duration:.2f} seconds: {curl_error}",
+                        exc_info=True
                     )
-                    if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt
-                        logger.info(f"Retrying in {wait_time} seconds...")
-                        await asyncio.sleep(delay=wait_time)
-                        continue
-                    else:
-                        return False
-                except httpx.ConnectError as connect_error:
-                    await s3_client.aclose()
-                    logger.error(f"Failed to connect to S3 URL: {connect_error}")
-                    if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt
-                        logger.info(f"Retrying in {wait_time} seconds...")
-                        await asyncio.sleep(delay=wait_time)
-                        continue
-                    else:
-                        return False
-                except Exception as s3_error:
-                    await s3_client.aclose()
-                    logger.error(f"Error downloading from S3: {s3_error}", exc_info=True)
+                    if output_path_obj.exists():
+                        output_path_obj.unlink()
                     if attempt < max_retries - 1:
                         wait_time = 2 ** attempt
                         logger.info(f"Retrying in {wait_time} seconds...")
