@@ -385,7 +385,7 @@ async def download_youtube_video_via_api(
                     status_url = f"{tasks_url}{task_id}/status/"
                     logger.info(f"Checking task status: {status_url}")
                     
-                    max_status_checks = 120
+                    max_status_checks = 360
                     status_check_interval = 5
                     task_video_url = None
                     
@@ -470,12 +470,12 @@ async def download_youtube_video_via_api(
                 
                 download_start = time.time()
                 try:
-                    logger.info("Starting curl download (timeout: 3600s)...")
+                    logger.info("Starting curl download (timeout: 10800s = 3 hours)...")
                     
                     curl_process = await asyncio.create_subprocess_exec(
                         'curl',
                         '-L',
-                        '--max-time', '3600',
+                        '--max-time', '10800',
                         '--progress-bar',
                         '--output', str(output_path_obj),
                         video_url,

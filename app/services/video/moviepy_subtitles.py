@@ -469,7 +469,11 @@ def load_cached_transcript_data(
                 logger.warning(f"Failed to load transcript cache {cache_path}: {e}")
                 continue
     
-    logger.warning(f"No transcript cache found for {video_path}")
+    logger.warning(
+        f"No transcript cache found for {video_path} | "
+        f"Tried paths: {[str(p) for p in cache_paths]} | "
+        f"Video exists: {video_path.exists()}"
+    )
     return None
 
 
@@ -491,11 +495,30 @@ def create_assemblyai_subtitles(
     if isinstance(video_path, str):
         video_path = Path(video_path)
     
+    logger.info(
+        f"Loading transcript cache for subtitles | video_path={video_path} | "
+        f"clip_start={clip_start:.2f}s | clip_end={clip_end:.2f}s"
+    )
+    
     transcript_data = load_cached_transcript_data(video_path)
 
-    if not transcript_data or not transcript_data.get('words'):
-        logger.warning("No cached transcript data available for subtitles")
+    if not transcript_data:
+        logger.error(
+            f"No transcript cache found for subtitles | video_path={video_path} | "
+            f"Expected cache: {video_path.with_suffix('.assemblyai_cache.json')}"
+        )
         return []
+    
+    if not transcript_data.get('words'):
+        logger.error(
+            f"Transcript cache exists but has no words | video_path={video_path} | "
+            f"Cache keys: {list(transcript_data.keys())}"
+        )
+        return []
+    
+    logger.info(
+        f"Found transcript data | words_count={len(transcript_data.get('words', []))}"
+    )
 
     # Convert clip timing to milliseconds
     clip_start_ms = int(clip_start * 1000)
@@ -618,21 +641,35 @@ def create_assemblyai_subtitles(
             if has_descenders:
                 logger.info(f"⚠️ Text contains descenders: '{text}' - using Caption box to protect them")
 
-            logger.debug(
-                f"Created subtitle | text='{text}' | "
+            logger.info(
+                f"✅ Created subtitle clip | text='{text}' | "
                 f"start={segment_start:.2f}s | end={segment_end:.2f}s | "
                 f"duration={segment_duration:.2f}s | "
-                f"position=({video_width//2}, {vertical_position}) | "
+                f"position=center,{vertical_position} | "
                 f"font_size={final_font_size}"
             )
 
-            subtitle_clips.extend([text_clip])
+            subtitle_clips.append(text_clip)
 
         except Exception as e:
-            logger.warning(f"Failed to create subtitle for '{text}': {e}", exc_info=True)
+            logger.error(
+                f"❌ Failed to create subtitle for '{text}' | "
+                f"segment_start={segment_start:.2f}s | segment_end={segment_end:.2f}s | "
+                f"error={e}",
+                exc_info=True
+            )
             continue
 
-    logger.info(f"Created {len(subtitle_clips)} subtitle elements from AssemblyAI data")
+    logger.info(
+        f"✅ Created {len(subtitle_clips)} subtitle elements from AssemblyAI data | "
+        f"video_path={video_path} | clip_range={clip_start:.2f}s-{clip_end:.2f}s"
+    )
+    if len(subtitle_clips) == 0:
+        logger.error(
+            f"⚠️ WARNING: No subtitle clips created! | "
+            f"relevant_words={len(relevant_words)} | "
+            f"video_path={video_path}"
+        )
     return subtitle_clips
 
 
@@ -797,6 +834,10 @@ def create_optimized_clip(
         final_clips = [cropped_clip]
 
         if add_subtitles:
+            logger.info(
+                f"Creating subtitles for clip | video_path={video_path} | "
+                f"start_time={start_time:.2f}s | end_time={end_time:.2f}s"
+            )
             subtitle_clips = create_assemblyai_subtitles(
                 video_path=video_path,
                 clip_start=start_time,
@@ -807,7 +848,16 @@ def create_optimized_clip(
                 font_size=font_size,
                 font_color=font_color
             )
-            final_clips.extend(subtitle_clips)
+            logger.info(
+                f"Created {len(subtitle_clips)} subtitle clips | "
+                f"will_add_to_final={'yes' if subtitle_clips else 'no'}"
+            )
+            if subtitle_clips:
+                final_clips.extend(subtitle_clips)
+            else:
+                logger.warning(
+                    f"No subtitle clips created! Subtitles will not appear in final video."
+                )
 
         # Compose and encode
         final_clip = (

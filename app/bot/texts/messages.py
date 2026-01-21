@@ -12,7 +12,12 @@ I'm your AI-powered assistant for creating engaging video clips with automatic s
 • Select the most engaging moments
 • Format videos in 9:16 aspect ratio
 
-Ready to start? Send me a video file, a Google Drive link, or a YouTube link! 🚀
+📺 *How to use:*
+• Send a video file (up to 4GB)
+• Paste a YouTube link (e.g., https://www.youtube.com/watch?v=...)
+• Share a Google Drive link
+
+Ready to start? Just send me a video or link! 🚀
 """
 
 BALANCE_MESSAGE = """
@@ -26,7 +31,10 @@ Need more? Use the buttons below! 👇
 VIDEO_UPLOAD_INSTRUCTIONS_MESSAGE = """
 📤 *Ready to create clips?*
 
-Send me a video file, a Google Drive link, or a YouTube link! 🎬
+Send me:
+• A video file (up to 4GB)
+• A YouTube link (just paste the URL!)
+• A Google Drive link
 
 I'll automatically:
 1. Analyze your video
@@ -109,7 +117,10 @@ VIDEO_REQUIREMENTS_MESSAGE = """
 3️⃣ Under "General access" select **"Anyone with the link"**
 4️⃣ Click **"Copy link"** and paste it here!
 
-*YouTube:* Just paste the link! 📺
+*YouTube:* 
+1️⃣ Copy the video URL from YouTube
+2️⃣ Paste it here (e.g., https://www.youtube.com/watch?v=... or https://youtu.be/...)
+3️⃣ Works with any YouTube video, including age-restricted content 📺
 
 💰 *Your Balance:* `{balance}` coins
 Send me a video file or link to start! 📥
@@ -118,24 +129,29 @@ Send me a video file or link to start! 📥
 HELP_MESSAGE = """
 📖 *How to use CutClipAI*
 
-1️⃣ **Upload Video:** Send a video file (up to 4GB), a YouTube link, or a Google Drive link.
+1️⃣ **Upload Video:** 
+   • Send a video file (up to 4GB)
+   • Paste a YouTube link (e.g., https://www.youtube.com/watch?v=...)
+   • Share a Google Drive link
+
 2️⃣ **AI Processing:** Our AI will analyze the video, find the best moments, and generate subtitles.
+
 3️⃣ **Get Clips:** You'll receive ready-to-use vertical (9:16) clips for Shorts, Reels, or TikTok.
 
 📋 *Requirements:*
-• Video duration: Up to 2 hours.
-• Formats: MP4, MOV, AVI.
-• Google Drive: Make sure access is set to "Anyone with the link".
+• Video duration: Up to 3 hours
+• Formats: MP4, MOV, AVI
+• YouTube: Works with any video, including age-restricted content
+• Google Drive: Make sure access is set to "Anyone with the link"
 
 💰 *Pricing:*
-• 1 generated clip = 1 coin.
-• Top up your balance using Telegram Stars in the "Balance" menu.
+• 1 generated clip = 1 coin
+• Top up your balance using Telegram Stars in the "Balance" menu
 
 Need help? Contact support or try sending a video now! 🚀
 """
 
 DOWNLOADING_MESSAGE = """
-⬇️ *Downloading video from Google Drive...*
 ⬇️ *Downloading video from Google Drive...*
 
 This may take a few minutes depending on the file size.
@@ -158,5 +174,6 @@ INVALID_YOUTUBE_LINK_MESSAGE = """
 ❌ *Invalid YouTube link!*
 
 Please check the link and try again.
+Make sure you're using a valid YouTube URL (e.g., https://www.youtube.com/watch?v=... or https://youtu.be/...)
 """
 

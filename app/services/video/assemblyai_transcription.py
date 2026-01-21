@@ -103,9 +103,21 @@ class AssemblyAITranscriptionService:
             try:
                 with open(cache_path, 'w') as f:
                     json.dump(result, f, indent=2)
-                logger.info(f"Cached transcription result | cache_path={cache_path}")
+                cache_size = cache_path.stat().st_size
+                words_count = len(result.get('words', []))
+                logger.info(
+                    f"✅ Cached transcription result | "
+                    f"cache_path={cache_path} | "
+                    f"cache_size={cache_size} bytes | "
+                    f"words_count={words_count} | "
+                    f"file_exists={cache_path.exists()}"
+                )
             except Exception as e:
-                logger.warning(f"Failed to cache transcription | error={e}")
+                logger.error(
+                    f"❌ Failed to cache transcription | "
+                    f"cache_path={cache_path} | error={e}",
+                    exc_info=True
+                )
 
         return result
 

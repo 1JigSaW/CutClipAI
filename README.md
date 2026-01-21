@@ -10,6 +10,8 @@ AI-powered video clipping service with automatic subtitle generation.
 - Coin-based billing system
 - Telegram bot interface
 - FastAPI backend with Celery workers
+- YouTube video support (direct link paste)
+- Google Drive integration
 
 ## Project Structure
 
@@ -72,6 +74,13 @@ python3 -m app.bot.bot
 ```bash
 docker-compose up
 ```
+
+## Usage
+
+The bot accepts:
+- Video files (up to 4GB via Telegram)
+- YouTube links (paste any YouTube URL)
+- Google Drive links (with public access)
 
 ## API Endpoints
 
