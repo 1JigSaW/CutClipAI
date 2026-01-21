@@ -378,40 +378,93 @@ async def download_youtube_video_via_api(
                             logger.info(f"Got video URL from API: {video_url}")
                             
                             logger.info(f"Downloading video from S3: {video_url}")
-                            download_response = await client.get(
-                                url=video_url,
-                                follow_redirects=True,
+                            
+                            s3_client = httpx.AsyncClient(
+                                timeout=httpx.Timeout(
+                                    connect=60.0,
+                                    read=3600.0,
+                                    write=60.0,
+                                    pool=60.0,
+                                ),
                             )
                             
-                            logger.info(
-                                f"S3 response status: {download_response.status_code}, "
-                                f"Content-Length: {download_response.headers.get('content-length', 'unknown')}"
-                            )
-                            
-                            if download_response.status_code == 200:
-                                total_bytes = 0
-                                with open(output_path_obj, "wb") as f:
-                                    async for chunk in download_response.aiter_bytes(chunk_size=8192 * 1024):
-                                        if chunk:
-                                            f.write(chunk)
-                                            total_bytes += len(chunk)
+                            try:
+                                download_response = await s3_client.get(
+                                    url=video_url,
+                                    follow_redirects=True,
+                                )
+                                
+                                content_length = download_response.headers.get('content-length')
+                                expected_size = int(content_length) if content_length else None
+                                
+                                logger.info(
+                                    f"S3 response status: {download_response.status_code}, "
+                                    f"Content-Length: {content_length} bytes "
+                                    f"({expected_size // 1024 // 1024 if expected_size else 'unknown'}MB)"
+                                )
+                                
+                                if download_response.status_code == 200:
+                                    total_bytes = 0
+                                    last_log_time = asyncio.get_event_loop().time()
+                                    last_log_bytes = 0
+                                    
+                                    with open(output_path_obj, "wb") as f:
+                                        async for chunk in download_response.aiter_bytes(chunk_size=8192 * 1024):
+                                            if chunk:
+                                                f.write(chunk)
+                                                total_bytes += len(chunk)
+                                                
+                                                current_time = asyncio.get_event_loop().time()
+                                                if current_time - last_log_time >= 30.0:
+                                                    downloaded_mb = total_bytes // 1024 // 1024
+                                                    speed_mb = (total_bytes - last_log_bytes) // 1024 // 1024 / (current_time - last_log_time) * 60
+                                                    if expected_size:
+                                                        progress = (total_bytes / expected_size) * 100
+                                                        logger.info(
+                                                            f"Downloading from S3: {downloaded_mb}MB / "
+                                                            f"{expected_size // 1024 // 1024}MB ({progress:.1f}%) "
+                                                            f"@ {speed_mb:.1f} MB/min"
+                                                        )
+                                                    else:
+                                                        logger.info(
+                                                            f"Downloading from S3: {downloaded_mb}MB "
+                                                            f"@ {speed_mb:.1f} MB/min"
+                                                        )
+                                                    last_log_time = current_time
+                                                    last_log_bytes = total_bytes
 
-                                logger.info(f"Downloaded {total_bytes} bytes from S3")
-
-                                if output_path_obj.exists() and output_path_obj.stat().st_size > 1024 * 1024:
-                                    file_size = output_path_obj.stat().st_size
                                     logger.info(
-                                        f"Download successful via API: {output_path} "
-                                        f"({file_size // 1024 // 1024}MB)"
+                                        f"Downloaded {total_bytes} bytes ({total_bytes // 1024 // 1024}MB) from S3"
                                     )
-                                    return True
+                                    
+                                    if output_path_obj.exists() and output_path_obj.stat().st_size > 1024 * 1024:
+                                        file_size = output_path_obj.stat().st_size
+                                        logger.info(
+                                            f"Download successful via API: {output_path} "
+                                            f"({file_size // 1024 // 1024}MB)"
+                                        )
+                                        await s3_client.aclose()
+                                        return True
+                                    else:
+                                        file_size = output_path_obj.stat().st_size if output_path_obj.exists() else 0
+                                        logger.warning(
+                                            f"Downloaded file is too small or empty: {file_size} bytes (min 1MB required)"
+                                        )
+                                        if output_path_obj.exists():
+                                            output_path_obj.unlink()
+                                        await s3_client.aclose()
+                                        if attempt < max_retries - 1:
+                                            wait_time = 2 ** attempt
+                                            logger.info(f"Retrying in {wait_time} seconds...")
+                                            await asyncio.sleep(delay=wait_time)
+                                            continue
+                                        else:
+                                            return False
                                 else:
-                                    file_size = output_path_obj.stat().st_size if output_path_obj.exists() else 0
+                                    await s3_client.aclose()
                                     logger.warning(
-                                        f"Downloaded file is too small or empty: {file_size} bytes (min 1MB required)"
+                                        f"Failed to download from S3 URL: {download_response.status_code}"
                                     )
-                                    if output_path_obj.exists():
-                                        output_path_obj.unlink()
                                     if attempt < max_retries - 1:
                                         wait_time = 2 ** attempt
                                         logger.info(f"Retrying in {wait_time} seconds...")
@@ -419,10 +472,9 @@ async def download_youtube_video_via_api(
                                         continue
                                     else:
                                         return False
-                            else:
-                                logger.warning(
-                                    f"Failed to download from S3 URL: {download_response.status_code}"
-                                )
+                            except Exception as s3_error:
+                                await s3_client.aclose()
+                                logger.error(f"Error downloading from S3: {s3_error}", exc_info=True)
                                 if attempt < max_retries - 1:
                                     wait_time = 2 ** attempt
                                     logger.info(f"Retrying in {wait_time} seconds...")
