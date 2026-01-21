@@ -606,10 +606,11 @@ async def download_youtube_video_via_api(
                             f"(attempt {attempt + 1}/{max_retries})"
                         )
                     if attempt < max_retries - 1:
-                        wait_time = 120
+                        wait_time = min(180 + (attempt * 30), 300)
                         logger.info(
                             f"Waiting {wait_time} seconds before retry "
-                            f"(API may still be processing the request, Cloudflare timeout is 100s)..."
+                            f"(API may still be processing the request, Cloudflare timeout is 100s, "
+                            f"API typically takes 2-3 minutes to process)..."
                         )
                         await asyncio.sleep(delay=wait_time)
                         continue
