@@ -317,21 +317,21 @@ async def download_youtube_video_via_api(
                 
                 try:
                     logger.info(f"Sending async request to API: {download_url}")
-                    response = await client.get(
+                    response = await client.post(
                         url=download_url,
-                        params={"url": url, "format": "json", "async": "true"},
+                        json={"url": url},
+                        params={"async": "true"},
                         headers={"Accept": "application/json"},
                         follow_redirects=True,
                     )
                     
-                    if response.status_code != 200:
+                    if response.status_code not in (200, 202):
                         logger.debug(
-                            f"GET returned {response.status_code}, trying POST..."
+                            f"POST returned {response.status_code}, trying GET..."
                         )
-                        response = await client.post(
+                        response = await client.get(
                             url=download_url,
-                            json={"url": url},
-                            params={"async": "true"},
+                            params={"url": url, "format": "json", "async": "true"},
                             headers={"Accept": "application/json"},
                             follow_redirects=True,
                         )
