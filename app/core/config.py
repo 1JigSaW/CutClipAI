@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     TEMP_DIR: Path = Path("./data/temp")
     OUTPUT_DIR: Path = Path("./data/output")
-    
+
     YOUTUBE_COOKIES_FILE: Optional[Path] = None
     YOUTUBE_DOWNLOAD_API_URL: Optional[str] = None
 

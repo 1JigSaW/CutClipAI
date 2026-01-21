@@ -354,58 +354,75 @@ async def download_youtube_video_via_api(
 
                 if response.status_code == 200:
                     try:
-                        response_data = response.json()
-                        logger.info(f"API response: {response_data}")
+                        content_type = response.headers.get("content-type", "").lower()
+                        logger.info(f"API response Content-Type: {content_type}")
+                        logger.info(f"API response headers: {dict(response.headers)}")
                         
-                        video_url = response_data.get("url")
-                        
-                        if not video_url:
-                            logger.error(f"API response missing 'url' field. Response: {response_data}")
-                            if attempt < max_retries - 1:
-                                wait_time = 2 ** attempt
-                                logger.info(f"Retrying in {wait_time} seconds...")
-                                await asyncio.sleep(delay=wait_time)
-                                continue
-                            else:
-                                return False
-                        
-                        logger.info(f"Got video URL from API: {video_url}")
-                        
-                        logger.info(f"Downloading video from S3: {video_url}")
-                        download_response = await client.get(
-                            url=video_url,
-                            follow_redirects=True,
-                        )
-                        
-                        logger.info(
-                            f"S3 response status: {download_response.status_code}, "
-                            f"Content-Length: {download_response.headers.get('content-length', 'unknown')}"
-                        )
-                        
-                        if download_response.status_code == 200:
-                            total_bytes = 0
-                            with open(output_path_obj, "wb") as f:
-                                async for chunk in download_response.aiter_bytes(chunk_size=8192 * 1024):
-                                    if chunk:
-                                        f.write(chunk)
-                                        total_bytes += len(chunk)
+                        if "application/json" in content_type:
+                            logger.info("API returned JSON response")
+                            response_data = response.json()
+                            logger.info(f"API response data: {response_data}")
+                            
+                            video_url = response_data.get("url")
+                            
+                            if not video_url:
+                                logger.error(f"API response missing 'url' field. Response: {response_data}")
+                                if attempt < max_retries - 1:
+                                    wait_time = 2 ** attempt
+                                    logger.info(f"Retrying in {wait_time} seconds...")
+                                    await asyncio.sleep(delay=wait_time)
+                                    continue
+                                else:
+                                    return False
+                            
+                            logger.info(f"Got video URL from API: {video_url}")
+                            
+                            logger.info(f"Downloading video from S3: {video_url}")
+                            download_response = await client.get(
+                                url=video_url,
+                                follow_redirects=True,
+                            )
+                            
+                            logger.info(
+                                f"S3 response status: {download_response.status_code}, "
+                                f"Content-Length: {download_response.headers.get('content-length', 'unknown')}"
+                            )
+                            
+                            if download_response.status_code == 200:
+                                total_bytes = 0
+                                with open(output_path_obj, "wb") as f:
+                                    async for chunk in download_response.aiter_bytes(chunk_size=8192 * 1024):
+                                        if chunk:
+                                            f.write(chunk)
+                                            total_bytes += len(chunk)
 
-                            logger.info(f"Downloaded {total_bytes} bytes from S3")
+                                logger.info(f"Downloaded {total_bytes} bytes from S3")
 
-                            if output_path_obj.exists() and output_path_obj.stat().st_size > 1024 * 1024:
-                                file_size = output_path_obj.stat().st_size
-                                logger.info(
-                                    f"Download successful via API: {output_path} "
-                                    f"({file_size // 1024 // 1024}MB)"
-                                )
-                                return True
+                                if output_path_obj.exists() and output_path_obj.stat().st_size > 1024 * 1024:
+                                    file_size = output_path_obj.stat().st_size
+                                    logger.info(
+                                        f"Download successful via API: {output_path} "
+                                        f"({file_size // 1024 // 1024}MB)"
+                                    )
+                                    return True
+                                else:
+                                    file_size = output_path_obj.stat().st_size if output_path_obj.exists() else 0
+                                    logger.warning(
+                                        f"Downloaded file is too small or empty: {file_size} bytes (min 1MB required)"
+                                    )
+                                    if output_path_obj.exists():
+                                        output_path_obj.unlink()
+                                    if attempt < max_retries - 1:
+                                        wait_time = 2 ** attempt
+                                        logger.info(f"Retrying in {wait_time} seconds...")
+                                        await asyncio.sleep(delay=wait_time)
+                                        continue
+                                    else:
+                                        return False
                             else:
-                                file_size = output_path_obj.stat().st_size if output_path_obj.exists() else 0
                                 logger.warning(
-                                    f"Downloaded file is too small or empty: {file_size} bytes (min 1MB required)"
+                                    f"Failed to download from S3 URL: {download_response.status_code}"
                                 )
-                                if output_path_obj.exists():
-                                    output_path_obj.unlink()
                                 if attempt < max_retries - 1:
                                     wait_time = 2 ** attempt
                                     logger.info(f"Retrying in {wait_time} seconds...")
@@ -414,8 +431,9 @@ async def download_youtube_video_via_api(
                                 else:
                                     return False
                         else:
-                            logger.warning(
-                                f"Failed to download from S3 URL: {download_response.status_code}"
+                            logger.error(
+                                f"API returned non-JSON response (Content-Type: {content_type}). "
+                                f"Expected JSON with 'url' field pointing to S3."
                             )
                             if attempt < max_retries - 1:
                                 wait_time = 2 ** attempt
