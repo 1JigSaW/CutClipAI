@@ -343,8 +343,16 @@ async def download_youtube_video_via_api(
                         logger.info(f"API response: {response_data}")
                         
                         task_id = response_data.get("task_id")
-                        if not task_id:
-                            logger.error(f"API response missing 'task_id': {response_data}")
+                        video_url = response_data.get("url")
+                        
+                        if task_id:
+                            logger.info(f"Got task_id (async mode): {task_id}, checking status...")
+                        elif video_url:
+                            logger.info(f"Got video URL directly (sync mode): {video_url}")
+                        else:
+                            logger.error(
+                                f"API response missing both 'task_id' and 'url': {response_data}"
+                            )
                             if attempt < max_retries - 1:
                                 wait_time = 2 ** attempt
                                 logger.info(f"Retrying in {wait_time} seconds...")
@@ -352,8 +360,6 @@ async def download_youtube_video_via_api(
                                 continue
                             else:
                                 return False
-                        
-                        logger.info(f"Got task_id: {task_id}, checking status...")
                     else:
                         logger.error(f"API returned status {response.status_code}")
                         if attempt < max_retries - 1:
@@ -374,91 +380,83 @@ async def download_youtube_video_via_api(
                     else:
                         return False
 
-                if not task_id:
-                    logger.error("No task_id received from API")
-                    if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt
-                        logger.info(f"Retrying in {wait_time} seconds...")
-                        await asyncio.sleep(delay=wait_time)
-                        continue
-                    else:
-                        return False
-
-                status_url = f"{tasks_url}{task_id}/status/"
-                logger.info(f"Checking task status: {status_url}")
-                
-                max_status_checks = 120
-                status_check_interval = 5
-                video_url = None
-                
-                for status_check in range(max_status_checks):
-                    try:
-                        status_response = await client.get(
-                            url=status_url,
-                            headers={"Accept": "application/json"},
-                            follow_redirects=True,
-                        )
-                        
-                        if status_response.status_code == 200:
-                            status_data = status_response.json()
-                            ready = status_data.get("ready", False)
-                            successful = status_data.get("successful", False)
-                            
-                            logger.info(
-                                f"Task status check {status_check + 1}/{max_status_checks}: "
-                                f"ready={ready}, successful={successful}"
+                if task_id:
+                    status_url = f"{tasks_url}{task_id}/status/"
+                    logger.info(f"Checking task status: {status_url}")
+                    
+                    max_status_checks = 120
+                    status_check_interval = 5
+                    task_video_url = None
+                    
+                    for status_check in range(max_status_checks):
+                        try:
+                            status_response = await client.get(
+                                url=status_url,
+                                headers={"Accept": "application/json"},
+                                follow_redirects=True,
                             )
                             
-                            if ready and successful:
-                                result = status_data.get("result", {})
-                                video_url = result.get("url")
+                            if status_response.status_code == 200:
+                                status_data = status_response.json()
+                                ready = status_data.get("ready", False)
+                                successful = status_data.get("successful", False)
                                 
-                                if not video_url:
-                                    logger.error(f"Task completed but no URL in result: {result}")
-                                    return False
+                                logger.info(
+                                    f"Task status check {status_check + 1}/{max_status_checks}: "
+                                    f"ready={ready}, successful={successful}"
+                                )
                                 
-                                logger.info(f"Got video URL from task result: {video_url}")
-                                break
-                            elif ready and not successful:
-                                error = status_data.get("error", "Unknown error")
-                                logger.error(f"Task failed: {error}")
-                                if attempt < max_retries - 1:
-                                    wait_time = 2 ** attempt
-                                    logger.info(f"Retrying in {wait_time} seconds...")
-                                    await asyncio.sleep(delay=wait_time)
+                                if ready and successful:
+                                    result = status_data.get("result", {})
+                                    task_video_url = result.get("url")
+                                    
+                                    if not task_video_url:
+                                        logger.error(f"Task completed but no URL in result: {result}")
+                                        return False
+                                    
+                                    logger.info(f"Got video URL from task result: {task_video_url}")
+                                    video_url = task_video_url
                                     break
+                                elif ready and not successful:
+                                    error = status_data.get("error", "Unknown error")
+                                    logger.error(f"Task failed: {error}")
+                                    if attempt < max_retries - 1:
+                                        wait_time = 2 ** attempt
+                                        logger.info(f"Retrying in {wait_time} seconds...")
+                                        await asyncio.sleep(delay=wait_time)
+                                        break
+                                    else:
+                                        return False
                                 else:
-                                    return False
+                                    await asyncio.sleep(delay=status_check_interval)
+                                    continue
                             else:
+                                logger.warning(
+                                    f"Status check returned {status_response.status_code}, "
+                                    f"retrying in {status_check_interval} seconds..."
+                                )
                                 await asyncio.sleep(delay=status_check_interval)
                                 continue
-                        else:
+                                
+                        except Exception as status_error:
                             logger.warning(
-                                f"Status check returned {status_response.status_code}, "
+                                f"Error checking task status: {status_error}, "
                                 f"retrying in {status_check_interval} seconds..."
                             )
                             await asyncio.sleep(delay=status_check_interval)
                             continue
-                            
-                    except Exception as status_error:
-                        logger.warning(
-                            f"Error checking task status: {status_error}, "
-                            f"retrying in {status_check_interval} seconds..."
-                        )
-                        await asyncio.sleep(delay=status_check_interval)
-                        continue
-                else:
-                    logger.error("Task status check timeout")
-                    if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt
-                        logger.info(f"Retrying in {wait_time} seconds...")
-                        await asyncio.sleep(delay=wait_time)
-                        continue
                     else:
-                        return False
+                        logger.error("Task status check timeout")
+                        if attempt < max_retries - 1:
+                            wait_time = 2 ** attempt
+                            logger.info(f"Retrying in {wait_time} seconds...")
+                            await asyncio.sleep(delay=wait_time)
+                            break
+                        else:
+                            return False
 
                 if not video_url:
-                    logger.error("No video URL received from task")
+                    logger.error("No video URL received (neither from sync response nor from task)")
                     if attempt < max_retries - 1:
                         wait_time = 2 ** attempt
                         logger.info(f"Retrying in {wait_time} seconds...")
