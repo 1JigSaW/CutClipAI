@@ -475,6 +475,10 @@ async def download_youtube_video_via_api(
                         write=60.0,
                         pool=10.0,
                     ),
+                    limits=httpx.Limits(
+                        max_keepalive_connections=5,
+                        max_connections=10,
+                    ),
                 )
                 
                 try:
