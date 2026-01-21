@@ -391,11 +391,25 @@ async def download_youtube_video_via_api(
                             
                             try:
                                 logger.info("Sending GET request to S3 URL...")
-                                download_response = await s3_client.get(
-                                    url=video_url,
-                                    follow_redirects=True,
-                                )
-                                logger.info(f"S3 request completed, status: {download_response.status_code}")
+                                logger.info(f"S3 URL: {video_url}")
+                                
+                                try:
+                                    download_response = await asyncio.wait_for(
+                                        s3_client.get(
+                                            url=video_url,
+                                            follow_redirects=True,
+                                        ),
+                                        timeout=120.0,
+                                    )
+                                    logger.info(f"S3 request completed, status: {download_response.status_code}")
+                                except asyncio.TimeoutError:
+                                    logger.error(
+                                        "S3 request timed out after 120 seconds. "
+                                        "This might indicate network issues or S3 is unreachable."
+                                    )
+                                    raise httpx.TimeoutException(
+                                        "S3 request timed out after 120 seconds"
+                                    )
                                 
                                 content_length = download_response.headers.get('content-length')
                                 expected_size = int(content_length) if content_length else None
