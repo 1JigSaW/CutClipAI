@@ -4,6 +4,7 @@ import time
 import shutil
 import tempfile
 import gc
+import subprocess
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
@@ -507,16 +508,56 @@ async def download_youtube_video_via_api(
                         )
                     except httpx.TimeoutException as httpx_timeout:
                         request_duration = time.time() - request_start
-                        logger.error(
-                            f"httpx.TimeoutException after {request_duration:.2f} seconds: {httpx_timeout}"
+                        logger.warning(
+                            f"httpx.TimeoutException after {request_duration:.2f} seconds: {httpx_timeout}. "
+                            "Trying curl as fallback..."
                         )
-                        raise
+                        await s3_client.aclose()
+                        
+                        logger.info("Using curl to download from S3...")
+                        try:
+                            curl_process = await asyncio.create_subprocess_exec(
+                                'curl',
+                                '-L',
+                                '--max-time', '3600',
+                                '--output', str(output_path_obj),
+                                video_url,
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.PIPE,
+                            )
+                            
+                            stdout, stderr = await curl_process.communicate()
+                            
+                            if curl_process.returncode == 0:
+                                if output_path_obj.exists() and output_path_obj.stat().st_size > 1024 * 1024:
+                                    file_size = output_path_obj.stat().st_size
+                                    logger.info(
+                                        f"Download successful via curl: {output_path} "
+                                        f"({file_size // 1024 // 1024}MB)"
+                                    )
+                                    return True
+                                else:
+                                    logger.error("curl downloaded file is too small or empty")
+                                    if output_path_obj.exists():
+                                        output_path_obj.unlink()
+                                    return False
+                            else:
+                                logger.error(f"curl failed with return code {curl_process.returncode}: {stderr.decode()}")
+                                if output_path_obj.exists():
+                                    output_path_obj.unlink()
+                                return False
+                        except Exception as curl_error:
+                            logger.error(f"Error using curl: {curl_error}", exc_info=True)
+                            if output_path_obj.exists():
+                                output_path_obj.unlink()
+                            return False
                     except Exception as s3_req_error:
                         request_duration = time.time() - request_start
                         logger.error(
                             f"Error during S3 request after {request_duration:.2f} seconds: {s3_req_error}",
                             exc_info=True
                         )
+                        await s3_client.aclose()
                         raise
                     
                     content_length = download_response.headers.get('content-length')
