@@ -55,14 +55,20 @@ class VideoProcessor:
             font_path = fonts_dir / f"{font_family}.ttf"
             if font_path.exists():
                 self.font_path = str(font_path)
-                logger.info(f"Using custom font from fonts directory: {self.font_path}")
+                logger.info(f"✅ Using custom font from fonts directory: {self.font_path}")
             else:
+                logger.info(f"Custom font not found, searching for system font...")
                 self.font_path = self._find_system_font()
         else:
+            logger.info(f"Fonts directory not found, searching for system font...")
             self.font_path = self._find_system_font()
+        
+        logger.info(f"📝 Final font path: {self.font_path}")
     
     def _find_system_font(self) -> str:
         """Find available system font for subtitles."""
+        logger.info("🔍 Searching for system fonts...")
+        
         # Try common system fonts that are usually available in Linux
         # Liberation is installed in Dockerfile, so check it first
         system_fonts = [
@@ -75,26 +81,33 @@ class VideoProcessor:
         ]
         
         for font_path in system_fonts:
-            if Path(font_path).exists():
-                logger.info(f"✅ Found system font: {font_path}")
+            font_path_obj = Path(font_path)
+            if font_path_obj.exists():
+                font_size = font_path_obj.stat().st_size
+                logger.info(
+                    f"✅ Found system font: {font_path} | "
+                    f"exists=True | size={font_size} bytes"
+                )
                 return font_path
+            else:
+                logger.debug(f"❌ Font not found: {font_path}")
         
         # If no system font found, try to use PIL's default font
+        logger.warning("No system fonts found at expected paths, trying PIL default font...")
         try:
             from PIL import ImageFont
-            # Try to get default font
             try:
                 default_font = ImageFont.load_default()
-                logger.info("Using PIL default font (None)")
+                logger.info("✅ Using PIL default font (None)")
                 return None  # None means use PIL default
             except Exception as e:
-                logger.warning(f"PIL default font failed: {e}")
+                logger.error(f"❌ PIL default font failed: {e}")
         except ImportError:
-            logger.warning("PIL ImageFont not available")
+            logger.error("❌ PIL ImageFont not available")
         
         # Last resort: try Liberation Sans by name (fontconfig might find it)
         logger.warning(
-            f"No system fonts found at expected paths, trying 'Liberation Sans' as fallback. "
+            f"⚠️ No system fonts found, trying 'Liberation Sans' by name as last resort. "
             f"This may fail if fontconfig is not configured."
         )
         return "Liberation Sans"
