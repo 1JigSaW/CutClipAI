@@ -547,7 +547,7 @@ def create_assemblyai_subtitles(
     video_width: int,
     video_height: int,
     font_family: str = "Arial",
-    font_size: int = 50,
+    font_size: int = 35,
     font_color: str = "#FFFF00"
 ) -> List[TextClip]:
     """Create subtitles using AssemblyAI's precise word timing."""
@@ -643,8 +643,8 @@ def create_assemblyai_subtitles(
     processor = VideoProcessor(font_family, font_size, font_color)
 
     # Use custom font size or calculate based on video width
-    # Increased base font size for better visibility
-    calculated_font_size = max(40, min(80, int(font_size * (video_width / 720) * 1.5)))
+    # Calculate font size based on video width
+    calculated_font_size = max(20, min(60, int(font_size * (video_width / 720) * 1.2)))
     final_font_size = calculated_font_size
 
     words_per_subtitle = 3
@@ -764,7 +764,7 @@ def create_optimized_clip(
     output_path: Path,
     add_subtitles: bool = True,
     font_family: str = "Arial",
-    font_size: int = 50,
+    font_size: int = 35,
     font_color: str = "#FFFF00"
 ) -> bool:
     """Create optimized 9:16 clip with AssemblyAI subtitles."""
