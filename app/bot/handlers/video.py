@@ -17,6 +17,7 @@ from app.bot.texts.messages import (
     INVALID_YOUTUBE_LINK_MESSAGE,
     NO_COINS_MESSAGE,
     PROCESSING_MESSAGE,
+    YOUTUBE_DOWNLOAD_ERROR_MESSAGE,
 )
 from app.core.config import settings
 from app.core.logger import get_logger, log_error
@@ -563,7 +564,7 @@ async def handle_text_message(
             )
             
             if not success:
-                await message.answer(text=INVALID_YOUTUBE_LINK_MESSAGE)
+                await message.answer(text=YOUTUBE_DOWNLOAD_ERROR_MESSAGE)
                 return
 
             await process_video_file(

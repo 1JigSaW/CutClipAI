@@ -361,6 +361,23 @@ async def download_youtube_video_via_api(
                                 continue
                             else:
                                 return False
+                    elif response.status_code == 524:
+                        logger.error(
+                            f"API returned 524 (Cloudflare timeout) - API cannot process request within timeout. "
+                            f"This usually means the API is overloaded or the video is too large. "
+                            f"Attempt {attempt + 1}/{max_retries}"
+                        )
+                        if attempt < max_retries - 1:
+                            wait_time = min(2 ** attempt, 300)
+                            logger.info(f"Retrying in {wait_time} seconds...")
+                            await asyncio.sleep(delay=wait_time)
+                            continue
+                        else:
+                            logger.error(
+                                f"All {max_retries} attempts failed with 524 timeout. "
+                                f"API cannot process this video. Returning False."
+                            )
+                            return False
                     else:
                         logger.error(f"API returned status {response.status_code}")
                         if attempt < max_retries - 1:
@@ -369,6 +386,10 @@ async def download_youtube_video_via_api(
                             await asyncio.sleep(delay=wait_time)
                             continue
                         else:
+                            logger.error(
+                                f"All {max_retries} attempts failed with status {response.status_code}. "
+                                f"Returning False."
+                            )
                             return False
                             
                 except Exception as request_error:
@@ -552,8 +573,16 @@ async def download_youtube_video_via_api(
                 await asyncio.sleep(delay=wait_time)
                 continue
             else:
+                logger.error(
+                    f"All {max_retries} download attempts failed. "
+                    f"Last error: {e}"
+                )
                 return False
     
+    logger.error(
+        f"All {max_retries} download attempts exhausted. "
+        f"Failed to download video from YouTube API."
+    )
     return False
 
 

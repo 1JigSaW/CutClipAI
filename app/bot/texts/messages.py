@@ -170,6 +170,17 @@ Please send a valid sharing link.
 Make sure the file access is set to **"Anyone with the link"**.
 """
 
+YOUTUBE_DOWNLOAD_ERROR_MESSAGE = """
+❌ *Failed to download YouTube video*
+
+The video could not be downloaded. This might happen if:
+• The video is too large or processing takes too long
+• The video is unavailable or private
+• The service is temporarily overloaded
+
+Please try again in a few minutes or try a different video.
+"""
+
 INVALID_YOUTUBE_LINK_MESSAGE = """
 ❌ *Invalid YouTube link!*
 
