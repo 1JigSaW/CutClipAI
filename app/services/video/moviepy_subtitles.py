@@ -121,14 +121,15 @@ class VideoProcessor:
             "high": {
                 "codec": "libx264",
                 "audio_codec": "aac",
-                "bitrate": "8000k",
+                "bitrate": "12000k",
                 "audio_bitrate": "256k",
-                "preset": "medium",
+                "preset": "slow",
                 "ffmpeg_params": [
-                    "-crf", "20",
+                    "-crf", "18",
                     "-pix_fmt", "yuv420p",
-                    "-profile:v", "main",
-                    "-level", "4.1"
+                    "-profile:v", "high",
+                    "-level", "4.2",
+                    "-tune", "film"
                 ]
             },
             "medium": {
@@ -684,15 +685,18 @@ def create_assemblyai_subtitles(
             )
             
             # TextClip can handle None font (uses PIL default) or font path
+            # Use smaller stroke for sharper text rendering
             text_clip_kwargs = {
                 'text': text,
                 'font_size': final_font_size,
                 'color': font_color,
                 'stroke_color': 'black',
-                'stroke_width': 2,
+                'stroke_width': 1,
                 'method': 'caption',
                 'size': (caption_width, caption_height),
-                'text_align': 'center'
+                'text_align': 'center',
+                'kerning': 0,
+                'interline': 0
             }
             
             # Only add font parameter if it's not None
@@ -965,6 +969,7 @@ def create_optimized_clip(
             temp_audiofile=temp_audiofile,
             remove_temp=True,
             logger=None,
+            threads=4,
             **encoding_settings
         )
 
