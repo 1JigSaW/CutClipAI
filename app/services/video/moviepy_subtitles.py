@@ -694,9 +694,7 @@ def create_assemblyai_subtitles(
                 'stroke_width': 1,
                 'method': 'caption',
                 'size': (caption_width, caption_height),
-                'text_align': 'center',
-                'kerning': 0,
-                'interline': 0
+                'text_align': 'center'
             }
             
             # Only add font parameter if it's not None
