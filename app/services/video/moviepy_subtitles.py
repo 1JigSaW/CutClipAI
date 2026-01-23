@@ -121,15 +121,23 @@ class VideoProcessor:
             "high": {
                 "codec": "libx264",
                 "audio_codec": "aac",
-                "bitrate": "12000k",
+                "bitrate": "15000k",
                 "audio_bitrate": "256k",
                 "preset": "slow",
                 "ffmpeg_params": [
-                    "-crf", "18",
+                    "-crf", "16",
                     "-pix_fmt", "yuv420p",
                     "-profile:v", "high",
                     "-level", "4.2",
-                    "-tune", "film"
+                    "-tune", "film",
+                    "-subq", "9",
+                    "-me_method", "umh",
+                    "-me_range", "24",
+                    "-g", "250",
+                    "-keyint_min", "25",
+                    "-sc_threshold", "40",
+                    "-i_qfactor", "0.71",
+                    "-b_strategy", "2"
                 ]
             },
             "medium": {
@@ -968,6 +976,7 @@ def create_optimized_clip(
             remove_temp=True,
             logger=None,
             threads=4,
+            write_logfile=False,
             **encoding_settings
         )
 
