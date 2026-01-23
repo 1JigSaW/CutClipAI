@@ -287,7 +287,7 @@ class VideoPipeline:
                     output_path=final_clip_path,
                     add_subtitles=True,
                     font_family="Arial",
-                    font_size=25,
+                    font_size=18,
                     font_color="#FFFF00"
                 )
                 
