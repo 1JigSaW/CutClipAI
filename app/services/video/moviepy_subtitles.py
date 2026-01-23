@@ -670,9 +670,9 @@ def create_assemblyai_subtitles(
 
         try:
             # ROBUST APPROACH: Use 'caption' with fixed size to prevent ANY clipping
-            # We set a height that is 2.5x the font size to definitely fit descenders (g, y, p)
+            # We set a height that is 4-5x the font size to fit multiple lines and descenders
             caption_width = int(video_width * 0.9)
-            caption_height = int(final_font_size * 2.5)
+            caption_height = int(final_font_size * 5.0)
             
             # Prepare font parameter - use None for PIL default or path for custom font
             font_param = processor.font_path
