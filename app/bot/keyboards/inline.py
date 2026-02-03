@@ -13,7 +13,7 @@ def get_buy_coins_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(
                     text="🎯 Starter: 10 clips (150 ⭐)",
-                    callback_data="buy_stars:10:1",
+                    callback_data="buy_stars:10:150",
                 ),
             ],
             [
